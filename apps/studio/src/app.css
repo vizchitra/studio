@@ -1,16 +1,411 @@
-body {
-  margin: 0;
-  padding: 20px;
-  font-family: sans-serif;
-  background: #f5f5f5;
-  color: #333;
+@import "./fonts.css";
+
+@layer reset, base;
+
+/* Basic reset — Tailwind's Preflight covered this before; now that Tailwind is
+   gone this is the only thing normalizing default browser/element styling.
+   Kept in its own layer so it always loses to base rules and component
+   <style> blocks (unlayered styles always beat layered ones). */
+@layer reset {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  ul,
+  ol {
+    list-style: none;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+
+  img,
+  picture,
+  svg,
+  video,
+  canvas {
+    display: block;
+    max-width: 100%;
+  }
+
+  button,
+  input,
+  optgroup,
+  select,
+  textarea {
+    font-family: inherit;
+    font-size: 100%;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+  }
+
+  button {
+    background-color: transparent;
+    background-image: none;
+    cursor: pointer;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
 }
 
-h1 {
-  color: #000;
-  font-size: 32px;
+:root {
+  /* Paper texture control */
+  --paper-noise: 0.008;
+  --paper-wash: 0.002;
+
+  /* Fonts */
+  --font-plex: "IBM Plex Sans", system-ui, "Segoe UI", "Roboto", sans-serif;
+  --font-cairo: "Cairo", "Optima", "Candara", "Noto Sans", system-ui, sans-serif;
+  --font-fira: "Fira Code", ui-monospace, "Cascadia Code", "Consolas", "Roboto Mono", monospace;
+  --font-body: var(--font-plex);
+  --font-display: var(--font-cairo);
+  --font-mono: var(--font-fira);
+
+  /* Fluid type & space scale */
+  --ratio: 1.125; /* Minor Third */
+  --text-base: clamp(1rem, 0.904rem + 0.38vw, 1.25rem); /* 16px -> 20px */
+  --space-base: clamp(1rem, 0.84rem + 0.77vw, 1.5rem); /* 16px -> 24px */
+
+  --text-flow-0: var(--text-base);
+  --text-flow--1: calc(var(--text-flow-0) / var(--ratio));
+  --text-flow--2: calc(var(--text-flow--1) / var(--ratio));
+  --text-flow-1: calc(var(--text-flow-0) * var(--ratio));
+  --text-flow-2: calc(var(--text-flow-1) * var(--ratio));
+  --text-flow-3: calc(var(--text-flow-2) * var(--ratio));
+  --text-flow-4: calc(var(--text-flow-3) * var(--ratio));
+
+  --space-flow--2: calc(var(--space-base) * 0.5);
+  --space-flow--1: calc(var(--space-base) * 0.75);
+  --space-flow-0: var(--space-base);
+  --space-flow-1: calc(var(--space-base) * 1.5);
+  --space-flow-2: calc(var(--space-base) * 2);
+  --space-flow-3: calc(var(--space-base) * 3);
+  --space-flow-4: calc(var(--space-base) * 4);
+  --space-flow-5: calc(var(--space-base) * 5);
+  --space-flow-6: calc(var(--space-base) * 6);
+
+  /* Widths */
+  --width-prose: 65ch;
+  --width-narrow: 28rem;
+  --width-content: 80rem;
+  --width-wide: 90rem;
+
+  /* Brand palette (OKLCH) */
+  --color-brand-yellow: oklch(89% 0.109 82); /* #FFD485 */
+  --color-brand-teal: oklch(84.9% 0.086 188); /* #88E0D8 */
+  --color-brand-blue: oklch(79.3% 0.099 267); /* #9FBAFC */
+  --color-brand-orange: oklch(76% 0.147 46.5); /* #FC915B */
+  --color-brand-pink: oklch(71.9% 0.161 354); /* #EF75AB */
+  --color-brand-grey: oklch(41% 0 0); /* #4c4c4c */
+
+  /* --- Color ramps (11 steps per hue) — feeds the named --color-viz-* variants below --- */
+  --color-yellow-50: oklch(98% 0.015 82);
+  --color-yellow-100: oklch(96% 0.03 82);
+  --color-yellow-200: oklch(92% 0.06 82);
+  --color-yellow-300: oklch(84% 0.09 82);
+  --color-yellow-400: oklch(76% 0.11 82);
+  --color-yellow-500: oklch(66% 0.13 82);
+  --color-yellow-600: oklch(56% 0.14 82);
+  --color-yellow-700: oklch(46% 0.12 82);
+  --color-yellow-800: oklch(36% 0.1 82);
+  --color-yellow-900: oklch(26% 0.08 82);
+  --color-yellow-950: oklch(16% 0.05 82);
+
+  --color-teal-50: oklch(98% 0.015 188);
+  --color-teal-100: oklch(96% 0.03 188);
+  --color-teal-200: oklch(92% 0.05 188);
+  --color-teal-300: oklch(84% 0.07 188);
+  --color-teal-400: oklch(76% 0.086 188);
+  --color-teal-500: oklch(66% 0.1 188);
+  --color-teal-600: oklch(56% 0.11 188);
+  --color-teal-700: oklch(46% 0.1 188);
+  --color-teal-800: oklch(36% 0.08 188);
+  --color-teal-900: oklch(26% 0.06 188);
+  --color-teal-950: oklch(16% 0.04 188);
+
+  --color-blue-50: oklch(98% 0.02 267);
+  --color-blue-100: oklch(96% 0.03 267);
+  --color-blue-200: oklch(92% 0.05 267);
+  --color-blue-300: oklch(84% 0.08 267);
+  --color-blue-400: oklch(76% 0.099 267);
+  --color-blue-500: oklch(66% 0.12 267);
+  --color-blue-600: oklch(56% 0.14 267);
+  --color-blue-700: oklch(46% 0.13 267);
+  --color-blue-800: oklch(36% 0.11 267);
+  --color-blue-900: oklch(26% 0.09 267);
+  --color-blue-950: oklch(16% 0.05 267);
+
+  --color-orange-50: oklch(98% 0.02 46.5);
+  --color-orange-100: oklch(96% 0.03 46.5);
+  --color-orange-200: oklch(92% 0.06 46.5);
+  --color-orange-300: oklch(84% 0.11 46.5);
+  --color-orange-400: oklch(76% 0.147 46.5);
+  --color-orange-500: oklch(66% 0.16 46.5);
+  --color-orange-600: oklch(56% 0.17 46.5);
+  --color-orange-700: oklch(46% 0.16 46.5);
+  --color-orange-800: oklch(36% 0.14 46.5);
+  --color-orange-900: oklch(26% 0.12 46.5);
+  --color-orange-950: oklch(16% 0.06 46.5);
+
+  --color-pink-50: oklch(98% 0.02 354);
+  --color-pink-100: oklch(96% 0.03 354);
+  --color-pink-200: oklch(92% 0.06 354);
+  --color-pink-300: oklch(84% 0.12 354);
+  --color-pink-400: oklch(76% 0.161 354);
+  --color-pink-500: oklch(66% 0.18 354);
+  --color-pink-600: oklch(56% 0.19 354);
+  --color-pink-700: oklch(46% 0.17 354);
+  --color-pink-800: oklch(36% 0.15 354);
+  --color-pink-900: oklch(26% 0.13 354);
+  --color-pink-950: oklch(16% 0.06 354);
+
+  --color-grey-50: oklch(98% 0 0);
+  --color-grey-100: oklch(96% 0 0);
+  --color-grey-200: oklch(92% 0 0);
+  --color-grey-300: oklch(84% 0 0);
+  --color-grey-400: oklch(76% 0 0);
+  --color-grey-500: oklch(66% 0 0);
+  --color-grey-600: oklch(56% 0 0);
+  --color-grey-700: oklch(46% 0 0);
+  --color-grey-800: oklch(36% 0 0);
+  --color-grey-900: oklch(26% 0 0);
+  --color-grey-950: oklch(16% 0 0);
+
+  /* --- Named viz colors (base + light/dark/muted/subtle/solid variants) ---
+     Used by tokens.ts and the marketing components (Header, Footer, Banner*). */
+  --color-viz-yellow: var(--color-yellow-400);
+  --color-viz-yellow-subtle: var(--color-yellow-100);
+  --color-viz-yellow-light: var(--color-yellow-200);
+  --color-viz-yellow-muted: var(--color-yellow-300);
+  --color-viz-yellow-solid: var(--color-yellow-700);
+  --color-viz-yellow-dark: var(--color-yellow-800);
+
+  --color-viz-teal: var(--color-teal-400);
+  --color-viz-teal-subtle: var(--color-teal-100);
+  --color-viz-teal-light: var(--color-teal-200);
+  --color-viz-teal-muted: var(--color-teal-300);
+  --color-viz-teal-solid: var(--color-teal-700);
+  --color-viz-teal-dark: var(--color-teal-800);
+
+  --color-viz-blue: var(--color-blue-400);
+  --color-viz-blue-subtle: var(--color-blue-100);
+  --color-viz-blue-light: var(--color-blue-200);
+  --color-viz-blue-muted: var(--color-blue-300);
+  --color-viz-blue-solid: var(--color-blue-700);
+  --color-viz-blue-dark: var(--color-blue-800);
+
+  --color-viz-orange: var(--color-orange-400);
+  --color-viz-orange-subtle: var(--color-orange-100);
+  --color-viz-orange-light: var(--color-orange-200);
+  --color-viz-orange-muted: var(--color-orange-300);
+  --color-viz-orange-solid: var(--color-orange-700);
+  --color-viz-orange-dark: var(--color-orange-800);
+
+  --color-viz-pink: var(--color-pink-400);
+  --color-viz-pink-subtle: var(--color-pink-100);
+  --color-viz-pink-light: var(--color-pink-200);
+  --color-viz-pink-muted: var(--color-pink-300);
+  --color-viz-pink-solid: var(--color-pink-700);
+  --color-viz-pink-dark: var(--color-pink-800);
+
+  --color-viz-grey: var(--color-grey-700);
+  --color-viz-grey-subtle: var(--color-grey-100);
+  --color-viz-grey-light: var(--color-grey-200);
+  --color-viz-grey-muted: var(--color-grey-300);
+  --color-viz-grey-solid: var(--color-grey-700);
+  --color-viz-grey-dark: var(--color-grey-800);
+
+  /* Paper (light theme only) */
+  --color-paper: oklch(99% 0.002 240); /* near-white, warm-neutral */
+  --color-ink: oklch(18% 0.005 240); /* near-black */
+
+  /* Neutral text/border scale (light theme) */
+  --color-neutral-100: oklch(96% 0 0); /* muted surfaces, input backgrounds */
+  --color-neutral-300: oklch(88% 0 0); /* borders, dividers */
+  --color-neutral-500: oklch(62% 0 0); /* tertiary text, placeholders */
+  --color-neutral-700: oklch(42% 0 0); /* secondary text */
+
+  --color-error: oklch(55% 0.19 25);
+
+  /* Semantic aliases */
+  --color-bg: var(--color-paper);
+  --color-fg: var(--color-ink);
+  --color-surface: var(--color-paper);
+  --color-muted: var(--color-neutral-100);
+  --color-border: var(--color-neutral-300);
+  --color-text-secondary: var(--color-neutral-800);
+  --color-text-tertiary: var(--color-neutral-600);
+  --color-link: var(--color-brand-blue);
+  --color-accent: var(--color-brand-yellow);
+}
+
+html {
+  scroll-behavior: smooth;
+  /* clip (not hidden) avoids a scroll container so position: sticky keeps working */
+  overflow-x: clip;
+  background-color: var(--color-bg);
+}
+
+body {
+  overflow-x: clip;
+  font-family: var(--font-body);
+  line-height: 1.6;
+  color: var(--color-fg);
+  background-color: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-variant-ligatures: common-ligatures;
+  background-image:
+    /* ultra-fine density noise */
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, var(--paper-noise)),
+      rgba(0, 0, 0, var(--paper-noise)) 1px,
+      transparent 2px
+    ),
+    /* paper wash */
+    linear-gradient(rgba(0, 0, 0, var(--paper-wash)), rgba(0, 0, 0, var(--paper-wash)));
+  background-blend-mode: multiply;
 }
 
 p {
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 2rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+}
+
+@media (min-width: 720px) {
+  h1 {
+    font-size: 2.4rem;
+  }
+}
+
+pre {
   font-size: 16px;
+  font-family: var(--font-mono);
+  background-color: rgba(255, 255, 255, 0.45);
+  border-radius: 3px;
+  box-shadow: 2px 2px 6px rgb(255 255 255 / 25%);
+  padding: 0.5em;
+  overflow-x: auto;
+  color: var(--color-fg);
+}
+
+button:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.text-column {
+  display: flex;
+  max-width: 48rem;
+  flex: 0.6;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0 auto;
+}
+
+.visually-hidden {
+  border: 0;
+  clip: rect(0 0 0 0);
+  height: auto;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+  white-space: nowrap;
+}
+
+/* Utility class for full-width breakout sections */
+.full-bleed {
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  position: relative;
+  overflow-x: hidden;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-body {
+  font-family: var(--font-body);
+}
+
+/* Common text styles */
+.content-text {
+  max-width: 55ch;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.content-heading {
+  font-size: 28px;
+  line-height: normal;
+  font-weight: 700;
+}
+
+.content-subheading {
+  font-size: 28px;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
+.content-container {
+  max-width: 48rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+
+.content-notice {
+  margin-bottom: 2rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-muted);
+  padding: 1.5rem;
+}
+
+.notice-error {
+  border-color: var(--color-error);
+  background-color: oklch(97% 0.02 25);
+  color: var(--color-error);
+}
+
+.notice-success {
+  border-color: var(--color-viz-teal-solid);
+  background-color: var(--color-viz-teal-subtle);
+  color: var(--color-viz-teal-dark);
+}
+
+@media (min-width: 768px) {
+  .content-text {
+    font-size: 22px;
+  }
+
+  .content-notice {
+    padding: 2rem;
+  }
 }

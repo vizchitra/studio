@@ -13,6 +13,7 @@ declare global {
         DB: D1Database;
         MEDIA_BUCKET: R2Bucket;
         MEDIA_QUEUE: Queue;
+        MEDIA_SERVICE_URL: string;
       };
     }
   }

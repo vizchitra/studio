@@ -5,6 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 
 account_id = "52ca2b395242b86653a1b8f5ae5bf222"
 
+[vars]
+MEDIA_SERVICE_URL = "https://studio-media.vizchitra-in.workers.dev"
+
 [assets]
 directory = ".svelte-kit/cloudflare"
 binding = "ASSETS"
