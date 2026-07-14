@@ -23,3 +23,11 @@ export const MEDIA_PIPELINE_STEPS = [
 ] as const;
 
 export type MediaPipelineStep = (typeof MEDIA_PIPELINE_STEPS)[number];
+
+/** Hex-encoded SHA-256 digest — used for asset_version.checksum. */
+export async function sha256Hex(bytes: BufferSource): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}

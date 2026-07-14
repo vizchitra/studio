@@ -1,4 +1,4 @@
-import { ulid } from "@studio/shared";
+import { ulid, sha256Hex } from "@studio/shared";
 import { runPipelineStep, type PipelineContext } from "./pipeline";
 import { verifyAccessJwt, AccessAuthError, type AccessEnv } from "./access-auth";
 
@@ -119,13 +119,6 @@ async function getOrCreatePersonId(db: D1Database, email: string): Promise<strin
     .bind(id, email, email, now, now)
     .run();
   return id;
-}
-
-async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 function guessKind(mimeType: string): string {
