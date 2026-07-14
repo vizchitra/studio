@@ -6,6 +6,23 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Provisioned live Cloudflare resources on the `vizchitra` account: D1
+  database `studio` (`5755274a-7116-4182-ac3a-0935756b1580`), R2 bucket
+  `studio-media`, Queue `studio-media-processing`. Filled `account_id`/
+  `database_id` into both `wrangler.toml` files.
+- Configured Cloudflare Access: Google OAuth client (Google Cloud project
+  `vizchitra-studio`) added as the Zero Trust identity provider; a
+  self-hosted Access application gates `studio.vizchitra.com` behind an
+  explicit email allowlist; DNS record added to the `vizchitra.com` zone.
+- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` GitHub Actions secrets
+  set on `vizchitra/studio`.
+- First manual deploy of `apps/studio` and `services/media` to
+  production; first automated `deploy.yml` run on merge to `main`.
+- Draft branch ruleset for `main` (PR required, `build` status check
+  required, no bypass) in the GitHub dashboard — not yet enforced;
+  `vizchitra` org is on GitHub Free, which doesn't support ruleset/branch
+  -protection enforcement on private repos without upgrading.
+
 - Rewrote `README.md` (was a 2-line stub) with repo layout, links to the
   other root docs, and the day-to-day command list.
 - `oxlint` + `oxfmt` (root devDependencies, `.oxlintrc.json`,
@@ -44,6 +61,23 @@ Running log of what changed and why. Newest first.
 
 ### Fixed
 
+- `.github/workflows/ci.yml`, `preview.yml`, and `deploy.yml` were pinned
+  to Node 20, but `wrangler@4.110.0` (and its `miniflare`/
+  `kv-asset-handler` deps) require Node >=22 — silently broke
+  `deploy.yml` on every merge to `main` since the first commit (job
+  completed with the wrangler commands failing). Bumped all three to
+  Node 22.
+- `preview.yml`'s `cloudflare/wrangler-action@v3` defaulted to installing
+  `wrangler@3.90.0`, conflicting with the workspace's own
+  `wrangler ^4.110.0` / `@cloudflare/workers-types ^5.x` and breaking
+  `npm install` in that job. Pinned `wranglerVersion: "4.110.0"` to
+  match.
+- `apps/studio/vite.config.js` imported `svelte` from
+  `@sveltejs/vite-plugin-svelte` instead of `sveltekit` from
+  `@sveltejs/kit/vite` — compiled fine but silently dropped SvelteKit's
+  routing, so local dev 404'd on every route with no error. Also
+  `app.html`, `app.css`, and `+layout.svelte` didn't exist yet; added
+  all four.
 - `architecture/` had three copies of the same content: `Studio
   Specification.md` duplicated `Studio Architecture.md`, `Studio Domain
   Model.md` and `Media Architecture.md` verbatim. Rewrote Specification

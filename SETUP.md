@@ -3,6 +3,36 @@
 This needs an authenticated `wrangler` session against your Cloudflare
 account, so it has to run locally, not inside Cowork's sandbox.
 
+## Status (vizchitra account)
+
+Steps 1–8 are done for the `vizchitra` Cloudflare account and the
+`vizchitra/studio` GitHub repo:
+
+- D1 `studio` (`5755274a-7116-4182-ac3a-0935756b1580`), R2 bucket
+  `studio-media`, Queue `studio-media-processing` provisioned;
+  `account_id`/`database_id` filled into both `wrangler.toml` files.
+- Cloudflare Access: Google OAuth (via Google Cloud project
+  `vizchitra-studio`) added as the Zero Trust identity provider; a
+  self-hosted Access application gates `studio.vizchitra.com` behind an
+  explicit email allowlist. Team name: `vizchitra`.
+- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repo secrets set.
+- `apps/studio` and `services/media` deployed and live.
+- Step 9 (branch protection) is drafted but **not enforced** — see the
+  note under that step; the org is on GitHub Free.
+
+Two gotchas hit during this bootstrap that aren't obvious from the steps
+below:
+
+- `wrangler@4.110.0` requires **Node >=22**. All three workflow files in
+  `.github/workflows/` are pinned to Node 22 for this reason — don't drop
+  them back to 20, it silently breaks `deploy.yml` (migrations/deploy
+  steps invoke `wrangler` directly) without failing the job in an obvious
+  way until you read the log closely.
+- `apps/studio/vite.config.js` must import `sveltekit` from
+  `@sveltejs/kit/vite` (not `svelte` from `@sveltejs/vite-plugin-svelte`)
+  — the latter compiles but silently drops SvelteKit's routing, so every
+  route 404s in local dev with no error printed.
+
 ## 1. Install
 
 ```
@@ -106,6 +136,16 @@ gh secret set CLOUDFLARE_ACCOUNT_ID --repo vizchitra/studio   # from `wrangler w
 Push this repo and open one PR first — GitHub only lets you require a
 status check that has run at least once, and the CI job is named `build`
 (shows up as the check `CI / build`).
+
+**Private-repo branch protection (classic or rulesets) requires GitHub
+Pro/Team for the org** — the free plan returns a 403 ("Upgrade to GitHub
+Pro or make this repository public") for both the classic API below and
+the newer Rulesets UI. For `vizchitra` (currently Free), a ruleset named
+`main-protection` has been configured in the dashboard matching the
+policy below, but it shows "won't be enforced ... until you upgrade" and
+does nothing yet. Options: upgrade the org, make the repo public, or
+proceed without enforcement (fine solo — just merge via PRs by
+convention) until either changes.
 
 ```
 git push -u origin main
