@@ -1,7 +1,8 @@
 import { ulid } from "@studio/shared";
 import { runPipelineStep, type PipelineContext } from "./pipeline";
+import { verifyAccessJwt, AccessAuthError, type AccessEnv } from "./access-auth";
 
-export interface Env {
+export interface Env extends AccessEnv {
   DB: D1Database;
   MEDIA_BUCKET: R2Bucket;
   MEDIA_QUEUE: Queue;
@@ -16,18 +17,29 @@ export default {
   /**
    * POST /assets — multipart upload. Creates the Asset + first AssetVersion
    * ('original') row, writes the file to R2, and kicks off the pipeline at
-   * 'import'. Auth: this Worker is only reachable behind Cloudflare Access
-   * on studio.vizchitra.com (see apps/studio/wrangler.toml).
+   * 'import'. Auth: this Worker's own workers.dev URL is reachable directly
+   * (it has no Access-gated route of its own), so every request is verified
+   * against Access's public keys here rather than trusting Access to have
+   * blocked it upstream — see access-auth.ts.
    *
-   * TODO: this is a stub — no request validation, no auth check on the
-   * calling user yet, no support for Historical/Mixed import modes
-   * (architecture/Media Architecture.md, Import Modes). Build those before
-   * wiring this up to a real upload UI.
+   * TODO: this is a stub — no request validation beyond auth, no support for
+   * Historical/Mixed import modes (architecture/Media Architecture.md,
+   * Import Modes). Build those before wiring this up to a real upload UI.
    */
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method !== "POST" || url.pathname !== "/assets") {
       return new Response("Not found", { status: 404 });
+    }
+
+    let userEmail: string;
+    try {
+      userEmail = await verifyAccessJwt(request, env);
+    } catch (err) {
+      if (err instanceof AccessAuthError) {
+        return new Response(err.message, { status: 401 });
+      }
+      throw err;
     }
 
     const form = await request.formData();
@@ -41,17 +53,18 @@ export default {
     const r2Key = `originals/${assetId}/${file.name}`;
     const now = new Date().toISOString();
 
-    await env.MEDIA_BUCKET.put(r2Key, file.stream(), {
+    const bytes = await file.arrayBuffer();
+    const checksum = await sha256Hex(bytes);
+
+    await env.MEDIA_BUCKET.put(r2Key, bytes, {
       httpMetadata: { contentType: file.type },
     });
-
-    const checksum = ulid(); // TODO: replace with real content hash (e.g. SHA-256 of the bytes)
 
     await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
          VALUES (?, 'draft', ?, ?, ?, ?, ?, ?)`,
-      ).bind(assetId, guessKind(file.type), file.name, now, now, "system", "system"),
+      ).bind(assetId, guessKind(file.type), file.name, now, now, userEmail, userEmail),
       env.DB.prepare(
         `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
          VALUES (?, ?, 'original', ?, ?, ?, ?, ?)`,
@@ -87,6 +100,13 @@ export default {
     }
   },
 };
+
+async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 function guessKind(mimeType: string): string {
   if (mimeType.startsWith("image/")) return "photo";

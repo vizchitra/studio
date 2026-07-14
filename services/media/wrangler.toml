@@ -5,6 +5,10 @@ compatibility_flags = ["nodejs_compat"]
 
 account_id = "52ca2b395242b86653a1b8f5ae5bf222"
 
+[vars]
+CF_ACCESS_TEAM_DOMAIN = "vizchitra.cloudflareaccess.com"
+CF_ACCESS_AUD = "REPLACE_WITH_ACCESS_APP_AUD_TAG"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "studio"
