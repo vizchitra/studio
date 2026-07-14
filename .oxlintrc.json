@@ -1,0 +1,4 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["**/.svelte-kit/**", "**/node_modules/**", "**/dist/**", "**/.wrangler/**"]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "vizchitra-studio",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/studio",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "oxlint .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "migrate:local": "wrangler d1 migrations apply studio --local --config apps/studio/wrangler.toml",
+    "migrate:remote": "wrangler d1 migrations apply studio --remote --config apps/studio/wrangler.toml"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.58.0",
+    "oxlint": "^1.58.0",
+    "wrangler": "^4.110.0"
+  }
+}

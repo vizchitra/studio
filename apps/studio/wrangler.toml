@@ -1,0 +1,33 @@
+name = "studio"
+main = ".svelte-kit/cloudflare/_worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+account_id = "REPLACE_WITH_ACCOUNT_ID"
+
+[assets]
+directory = ".svelte-kit/cloudflare"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "studio"
+database_id = "REPLACE_AFTER_WRANGLER_D1_CREATE"
+migrations_dir = "../../migrations"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "studio-media"
+
+[[queues.producers]]
+binding = "MEDIA_QUEUE"
+queue = "studio-media-processing"
+
+[[routes]]
+pattern = "studio.vizchitra.com/*"
+zone_name = "vizchitra.com"
+
+# Cloudflare Access gates this route at the edge (Google as the login
+# provider behind Access — see architecture/Studio Architecture RFC v1.md,
+# Deployment section). Configure the Access application in the Zero Trust
+# dashboard; it is not expressed in this file. See SETUP.md.

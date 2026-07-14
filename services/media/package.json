@@ -1,0 +1,20 @@
+{
+  "name": "@studio/media",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@studio/domain": "*",
+    "@studio/shared": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260708.1",
+    "typescript": "^6.0.0",
+    "wrangler": "^4.110.0"
+  }
+}

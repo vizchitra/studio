@@ -41,6 +41,9 @@ build/Release
 node_modules/
 jspm_packages/
 
+# Cloudflare Workers local dev state
+.wrangler/
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 

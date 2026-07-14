@@ -1,0 +1,25 @@
+name = "studio-media"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+account_id = "REPLACE_WITH_ACCOUNT_ID"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "studio"
+database_id = "REPLACE_AFTER_WRANGLER_D1_CREATE"
+migrations_dir = "../../migrations"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "studio-media"
+
+[[queues.consumers]]
+queue = "studio-media-processing"
+max_batch_size = 10
+max_retries = 5
+
+[[queues.producers]]
+binding = "MEDIA_QUEUE"
+queue = "studio-media-processing"
