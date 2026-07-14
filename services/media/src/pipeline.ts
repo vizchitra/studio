@@ -1,5 +1,6 @@
 import { parse as parseExif } from "exifr";
-import { ulid, MEDIA_PIPELINE_STEPS, type MediaPipelineStep } from "@studio/shared";
+import { PhotonImage, SamplingFilter, resize } from "@cf-wasm/photon/workerd";
+import { ulid, sha256Hex, MEDIA_PIPELINE_STEPS, type MediaPipelineStep } from "@studio/shared";
 
 // Keep extraction to plain, JSON-serializable metadata (timestamps, camera
 // info, GPS, orientation) — skip binary/large segments (makerNote, thumbnail,
@@ -79,10 +80,114 @@ async function exifExtractionStep(ctx: PipelineContext) {
   return { done: true, hasExif: exif !== null };
 }
 
-async function previewGenerationStep(_ctx: PipelineContext) {
-  // TODO: use Cloudflare Image Transformations to generate web/thumbnail
-  // AssetVersion rows.
-  return { done: true };
+// Longest-edge cap per derivative kind. Resizing happens in-Worker via
+// @cf-wasm/photon (WASM) rather than Cloudflare Image Transformations, which
+// would need the original re-fetched over HTTP through a zone with Image
+// Resizing enabled — this avoids that extra infra and plan dependency.
+const PREVIEW_SIZES: { kind: "web" | "thumbnail"; maxDimension: number }[] = [
+  { kind: "web", maxDimension: 1600 },
+  { kind: "thumbnail", maxDimension: 400 },
+];
+
+// Workers cap memory around 128MB; stay well clear of that for decode + resize.
+const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
+
+async function previewGenerationStep(ctx: PipelineContext) {
+  const version = await ctx.db
+    .prepare(
+      `SELECT id, r2_key, mime_type, size_bytes FROM asset_version WHERE asset_id = ? AND kind = 'original'`,
+    )
+    .bind(ctx.assetId)
+    .first<{ id: string; r2_key: string; mime_type: string; size_bytes: number }>();
+
+  if (!version) {
+    throw new Error(`No 'original' asset_version found for asset ${ctx.assetId}`);
+  }
+
+  if (!version.mime_type.startsWith("image/")) {
+    return { skipped: true, reason: `mime_type ${version.mime_type} is not an image` };
+  }
+
+  if (version.size_bytes > MAX_SOURCE_BYTES) {
+    return {
+      skipped: true,
+      reason: `original is ${version.size_bytes} bytes, over the ${MAX_SOURCE_BYTES} processing cap`,
+    };
+  }
+
+  const object = await ctx.bucket.get(version.r2_key);
+  if (!object) {
+    throw new Error(`R2 object ${version.r2_key} not found for asset ${ctx.assetId}`);
+  }
+  const sourceBytes = new Uint8Array(await object.arrayBuffer());
+
+  let sourceImage: PhotonImage;
+  try {
+    sourceImage = PhotonImage.new_from_byteslice(sourceBytes);
+  } catch (err) {
+    // Corrupt or unsupported image data isn't a pipeline failure — retrying
+    // won't decode it any better.
+    return { skipped: true, reason: `image decode failed: ${String(err)}` };
+  }
+
+  const created: { kind: string; versionId: string; reused: boolean }[] = [];
+  try {
+    for (const { kind, maxDimension } of PREVIEW_SIZES) {
+      // Idempotent: a retried run must not recreate (or duplicate-key on) a
+      // derivative an earlier partial attempt already produced.
+      const existing = await ctx.db
+        .prepare(`SELECT id FROM asset_version WHERE asset_id = ? AND kind = ?`)
+        .bind(ctx.assetId, kind)
+        .first<{ id: string }>();
+      if (existing) {
+        created.push({ kind, versionId: existing.id, reused: true });
+        continue;
+      }
+
+      const longestEdge = Math.max(sourceImage.get_width(), sourceImage.get_height());
+      const scale = Math.min(1, maxDimension / longestEdge);
+      const width = Math.round(sourceImage.get_width() * scale);
+      const height = Math.round(sourceImage.get_height() * scale);
+
+      const resized = resize(sourceImage, width, height, SamplingFilter.Lanczos3);
+      let outputBytes: Uint8Array;
+      try {
+        outputBytes = resized.get_bytes_webp();
+      } finally {
+        resized.free();
+      }
+
+      const versionId = ulid();
+      const r2Key = `derivatives/${ctx.assetId}/${kind}.webp`;
+      const checksum = await sha256Hex(outputBytes as Uint8Array<ArrayBuffer>);
+      const now = new Date().toISOString();
+
+      await ctx.bucket.put(r2Key, outputBytes, { httpMetadata: { contentType: "image/webp" } });
+      await ctx.db
+        .prepare(
+          `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, width, height, checksum, created_at)
+           VALUES (?, ?, ?, 'image/webp', ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          versionId,
+          ctx.assetId,
+          kind,
+          r2Key,
+          outputBytes.byteLength,
+          width,
+          height,
+          checksum,
+          now,
+        )
+        .run();
+
+      created.push({ kind, versionId, reused: false });
+    }
+  } finally {
+    sourceImage.free();
+  }
+
+  return { done: true, created };
 }
 
 async function sessionInferenceStep(_ctx: PipelineContext) {
