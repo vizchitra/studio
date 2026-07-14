@@ -48,6 +48,10 @@ export default {
       return new Response("Expected multipart field 'file'", { status: 400 });
     }
 
+    // asset.created_by/updated_by are FKs to person.id, not raw emails —
+    // resolve (or provision) the person row for the authenticated user.
+    const personId = await getOrCreatePersonId(env.DB, userEmail);
+
     const assetId = ulid();
     const versionId = ulid();
     const r2Key = `originals/${assetId}/${file.name}`;
@@ -64,7 +68,7 @@ export default {
       env.DB.prepare(
         `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
          VALUES (?, 'draft', ?, ?, ?, ?, ?, ?)`,
-      ).bind(assetId, guessKind(file.type), file.name, now, now, userEmail, userEmail),
+      ).bind(assetId, guessKind(file.type), file.name, now, now, personId, personId),
       env.DB.prepare(
         `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
          VALUES (?, ?, 'original', ?, ?, ?, ?, ?)`,
@@ -100,6 +104,22 @@ export default {
     }
   },
 };
+
+async function getOrCreatePersonId(db: D1Database, email: string): Promise<string> {
+  const existing = await db
+    .prepare(`SELECT id FROM person WHERE email = ?`)
+    .bind(email)
+    .first<{ id: string }>();
+  if (existing) return existing.id;
+
+  const id = ulid();
+  const now = new Date().toISOString();
+  await db
+    .prepare(`INSERT INTO person (id, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`)
+    .bind(id, email, email, now, now)
+    .run();
+  return id;
+}
 
 async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
