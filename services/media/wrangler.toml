@@ -7,7 +7,7 @@ account_id = "52ca2b395242b86653a1b8f5ae5bf222"
 
 [vars]
 CF_ACCESS_TEAM_DOMAIN = "vizchitra.cloudflareaccess.com"
-CF_ACCESS_AUD = "REPLACE_WITH_ACCESS_APP_AUD_TAG"
+CF_ACCESS_AUD = "2ea67a70024599c1476187b5eef943bd102f101c6416f2509e7c503bc429129c"
 
 [[d1_databases]]
 binding = "DB"
