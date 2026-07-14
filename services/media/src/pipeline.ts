@@ -1,4 +1,25 @@
+import { parse as parseExif } from "exifr";
 import { ulid, MEDIA_PIPELINE_STEPS, type MediaPipelineStep } from "@studio/shared";
+
+// Keep extraction to plain, JSON-serializable metadata (timestamps, camera
+// info, GPS, orientation) — skip binary/large segments (makerNote, thumbnail,
+// icc) that aren't useful here and don't round-trip cleanly through JSON.
+const EXIF_PARSE_OPTIONS = {
+  tiff: true,
+  exif: true,
+  gps: true,
+  interop: false,
+  makerNote: false,
+  userComment: false,
+  xmp: false,
+  icc: false,
+  iptc: false,
+  jfif: false,
+  translateKeys: true,
+  translateValues: true,
+  reviveValues: true,
+  mergeOutput: true,
+};
 
 export interface PipelineContext {
   assetId: string;
@@ -19,10 +40,43 @@ async function importStep(_ctx: PipelineContext) {
   return { done: true };
 }
 
-async function exifExtractionStep(_ctx: PipelineContext) {
-  // TODO: read the original AssetVersion from R2, parse EXIF, write to
-  // asset_version.exif for the 'original' version row.
-  return { done: true };
+async function exifExtractionStep(ctx: PipelineContext) {
+  const version = await ctx.db
+    .prepare(
+      `SELECT id, r2_key, mime_type FROM asset_version WHERE asset_id = ? AND kind = 'original'`,
+    )
+    .bind(ctx.assetId)
+    .first<{ id: string; r2_key: string; mime_type: string }>();
+
+  if (!version) {
+    throw new Error(`No 'original' asset_version found for asset ${ctx.assetId}`);
+  }
+
+  if (!version.mime_type.startsWith("image/")) {
+    return { skipped: true, reason: `mime_type ${version.mime_type} is not an image` };
+  }
+
+  const object = await ctx.bucket.get(version.r2_key);
+  if (!object) {
+    throw new Error(`R2 object ${version.r2_key} not found for asset ${ctx.assetId}`);
+  }
+  const bytes = await object.arrayBuffer();
+
+  let exif: Record<string, unknown> | null;
+  try {
+    exif = (await parseExif(bytes, EXIF_PARSE_OPTIONS)) ?? null;
+  } catch (err) {
+    // Corrupt or unsupported EXIF data isn't a pipeline failure — the image
+    // itself is still valid, it just has no (or malformed) metadata to record.
+    return { skipped: true, reason: `EXIF parse failed: ${String(err)}` };
+  }
+
+  await ctx.db
+    .prepare(`UPDATE asset_version SET exif = ? WHERE id = ?`)
+    .bind(exif ? JSON.stringify(exif) : null, version.id)
+    .run();
+
+  return { done: true, hasExif: exif !== null };
 }
 
 async function previewGenerationStep(_ctx: PipelineContext) {
