@@ -6,6 +6,32 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Upload UI in `apps/studio` (closes #5): a form on the home page whose
+  SvelteKit action forwards the file to the media service's `/assets`
+  endpoint, reusing the same `Cf-Access-Jwt-Assertion` header Access
+  attached to the incoming request. Completes login -> upload -> row in
+  D1 + object in R2 end to end; verified against a real upload.
+- Replaced the placeholder `app.css` with the real design system (brand
+  OKLCH palette, fluid type/space scale, Cairo/IBM Plex Sans/Fira Code
+  via `fonts.css`) and added the referenced `.woff2` files under
+  `apps/studio/static/fonts/`.
+- `exif_extraction` pipeline step (closes #6): reads the `original`
+  `asset_version`'s bytes from R2, parses EXIF via `exifr`, writes the
+  result to `asset_version.exif`. Non-image mime types and
+  unparseable/corrupt EXIF are a normal skip, not a pipeline failure.
+- `services/media` now verifies `Cf-Access-Jwt-Assertion` against
+  Access's public keys (`access-auth.ts`, closes #3) instead of
+  trusting the unverified `Cf-Access-Authenticated-User-Email` header —
+  this Worker's own `workers.dev` URL bypasses Access's edge
+  enforcement entirely, so the JWT signature is the only real trust
+  boundary.
+- Real SHA-256 checksum of uploaded bytes in `asset_version.checksum`,
+  replacing the placeholder `ulid()` (closes #4).
+- `@cloudflare/vitest-pool-workers` + Vitest for `services/media`, with
+  D1 migrations applied in a test setup file. First tests cover
+  `runPipelineStep`'s success path (records `done`, enqueues the next
+  step) and failure path (records `failed`, does not enqueue, rethrows
+  for the queue's retry policy) (closes #7). Wired into `ci.yml`.
 - Provisioned live Cloudflare resources on the `vizchitra` account: D1
   database `studio` (`5755274a-7116-4182-ac3a-0935756b1580`), R2 bucket
   `studio-media`, Queue `studio-media-processing`. Filled `account_id`/
@@ -61,6 +87,13 @@ Running log of what changed and why. Newest first.
 
 ### Fixed
 
+- Every upload crashed with Cloudflare error 1101: `asset.created_by`/
+  `updated_by` are FKs to `person.id` (a ULID), not raw email addresses,
+  and `person` starts empty — the D1 batch insert violated the FK
+  constraint and threw uncaught. Predates #3's JWT work (the original
+  `"system"` placeholder would have hit the same violation). Fixed by
+  resolving-or-provisioning a `person` row for the Access-authenticated
+  email before referencing it.
 - `.github/workflows/ci.yml`, `preview.yml`, and `deploy.yml` were pinned
   to Node 20, but `wrangler@4.110.0` (and its `miniflare`/
   `kv-asset-handler` deps) require Node >=22 — silently broke
