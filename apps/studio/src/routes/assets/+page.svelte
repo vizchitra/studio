@@ -19,10 +19,36 @@
   <div class="asset-grid">
     {#each data.assets as asset (asset.id)}
       <div class="asset-card">
-        {#if asset.thumbnail_r2_key}
-          <img src="/media/{asset.thumbnail_r2_key}" alt={asset.title ?? asset.kind} />
-        {:else}
-          <div class="asset-placeholder">Processing&hellip;</div>
+        <div class="asset-image-wrap">
+          {#if asset.thumbnail_r2_key}
+            <img src="/media/{asset.thumbnail_r2_key}" alt={asset.title ?? asset.kind} />
+          {:else}
+            <div class="asset-placeholder">Processing&hellip;</div>
+          {/if}
+          {#each asset.faces as face (face.id)}
+            <div
+              class="face-box"
+              style="left: {face.x_min * 100}%; top: {face.y_min * 100}%; width: {(face.x_max -
+                face.x_min) *
+                100}%; height: {(face.y_max - face.y_min) * 100}%;"
+            >
+              {#if face.person_name}
+                <span class="face-label">{face.person_name}</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+
+        {#if asset.faces.some((f) => !f.person_name)}
+          <div class="face-confirm-list">
+            {#each asset.faces.filter((f) => !f.person_name) as face (face.id)}
+              <form method="POST" action="?/confirmFace" class="face-confirm">
+                <input type="hidden" name="faceId" value={face.id} />
+                <input type="text" name="personName" placeholder="Who is this?" required />
+                <button type="submit">Confirm</button>
+              </form>
+            {/each}
+          </div>
         {/if}
 
         <div class="asset-meta">
@@ -95,6 +121,46 @@
     width: 100%;
     aspect-ratio: 4 / 3;
     object-fit: cover;
+  }
+
+  .asset-image-wrap {
+    position: relative;
+  }
+
+  .face-box {
+    position: absolute;
+    border: 2px solid var(--color-viz-teal-dark, #0a7);
+    border-radius: 0.15rem;
+    pointer-events: none;
+  }
+
+  .face-label {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    font-size: 0.7rem;
+    line-height: 1.4;
+    padding: 0 0.25rem;
+    background: var(--color-viz-teal-dark, #0a7);
+    color: white;
+    white-space: nowrap;
+  }
+
+  .face-confirm-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0 0.75rem 0.75rem;
+  }
+
+  .face-confirm {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .face-confirm input[type="text"] {
+    flex: 1;
+    min-width: 0;
   }
 
   .asset-placeholder {

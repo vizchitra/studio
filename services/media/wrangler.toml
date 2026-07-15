@@ -13,6 +13,9 @@ migrations_dir = "../../migrations"
 binding = "MEDIA_BUCKET"
 bucket_name = "studio-media"
 
+[ai]
+binding = "AI"
+
 [[queues.consumers]]
 queue = "studio-media-processing"
 max_batch_size = 10

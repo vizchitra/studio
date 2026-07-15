@@ -118,11 +118,38 @@ not a bug, so it's left alone rather than "fixed."
 `.oxlintrc.json` and `.oxfmtrc.json` at the repo root apply to everything
 under it — no per-package config needed.
 
+## Face detection (bounding boxes): Moondream 3.1 on Workers AI, not self-hosted ONNX
+
+`face_clustering` needs face bounding boxes before anything else in the
+face pipeline can happen. Considered Moondream 3.1 (a VLM, called via the
+Workers AI binding) against a self-hosted specialist model — e.g.
+MediaPipe's BlazeFace, an ONNX model bundled into the Worker and run
+in-process via a WASM runtime, the same pattern `@cf-wasm/photon` already
+uses for preview_generation.
+
+At this project's volume (thousands, not millions, of images) Workers
+AI's per-inference cost is negligible either way, so cost didn't decide
+it. What did: Moondream is one integration that also covers `ocr` and
+`vision_tagging` — both still stubs that will need a vision model of
+their own regardless. BlazeFace only solves face detection, so choosing
+it would still leave two more model decisions to make later. Moondream's
+extra network hop to the Workers AI service doesn't matter here because
+this is an async batch pipeline, not a user-facing request — nothing is
+waiting on it in real time. Bundling an ONNX runtime and model into the
+Worker also risks the bundle-size/CPU-time ceilings Workers AI sidesteps
+entirely.
+
+Revisit only if `ocr`/`vision_tagging` end up needing a different model
+than Moondream anyway, which would remove the reuse argument.
+
 ## Open questions (not yet decided)
 
-- Real checksum algorithm for `asset_version.checksum` (currently a
-  placeholder ULID in the upload stub — needs SHA-256 or similar).
-  R2 key naming convention beyond `originals/{assetId}/{filename}` — has
-  no collision handling yet for re-uploads of the same asset.
+- R2 key naming convention beyond `originals/{assetId}/{filename}` — not
+  a current problem (each upload gets a fresh ULID `assetId`, so no
+  collisions yet), but worth a real convention before Historical/Mixed
+  import modes land (`architecture/Media Architecture.md`, Import Modes).
 - Whether `search_index` stays a plain D1 table or moves to D1 FTS5 /
   an external index once query patterns from real usage are known.
+- Where the face *embedding* for `reference_person_matching` comes from
+  (`face_clustering`'s Moondream call only produces bounding boxes, not a
+  vector) — a separate decision from detection, still open.

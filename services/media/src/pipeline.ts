@@ -27,6 +27,10 @@ export interface PipelineContext {
   db: D1Database;
   bucket: R2Bucket;
   queue: Queue;
+  // Optional: only face_clustering uses it, and it's not sourced from
+  // `env` in the test runtime (see pipeline.test.ts) — making every other
+  // step's tests thread through a mock would be pure churn.
+  ai?: Ai;
 }
 
 export type PipelineStepFn = (ctx: PipelineContext) => Promise<Record<string, unknown>>;
@@ -206,9 +210,119 @@ async function referencePersonMatchingStep(_ctx: PipelineContext) {
   return { done: true };
 }
 
-async function faceClusteringStep(_ctx: PipelineContext) {
-  // TODO: cluster unmatched faces across the batch for human labeling.
-  return { done: true };
+// Detection only (per architecture/Studio Architecture RFC v1.md's pipeline
+// naming, this slot is "face_clustering", but clustering unmatched faces
+// across a batch needs the boxes to exist first — that's this step; actual
+// clustering/matching stays in reference_person_matching, still a stub, see
+// DESIGN.md). Moondream 3.1's "detect" task returns normalized (0-1)
+// bounding boxes for an open-vocabulary target phrase — see DESIGN.md for
+// why this model over a self-hosted specialist face detector.
+const FACE_DETECTION_MODEL = "@cf/moondream/moondream3.1-9B-A2B";
+// Base64 inflates size ~33%; the 'web' derivative this runs against is
+// already downsized (max 1600px JPEG), so this cap is a safety net, not
+// the normal case.
+const FACE_DETECTION_MAX_BYTES = 4 * 1024 * 1024;
+
+interface MoondreamDetectedObject {
+  x_min: number;
+  y_min: number;
+  x_max: number;
+  y_max: number;
+}
+
+function isValidDetectedObject(value: unknown): value is MoondreamDetectedObject {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  const coords = [obj.x_min, obj.y_min, obj.x_max, obj.y_max];
+  if (!coords.every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1)) {
+    return false;
+  }
+  return (
+    (obj.x_min as number) < (obj.x_max as number) && (obj.y_min as number) < (obj.y_max as number)
+  );
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+async function faceClusteringStep(ctx: PipelineContext) {
+  if (!ctx.ai) {
+    throw new Error("No AI binding available for face_clustering");
+  }
+
+  // Prefer 'web' (already downsized by preview_generation, which runs
+  // earlier in the pipeline) over 'original' — smaller upload, and
+  // Moondream doesn't need full resolution for face boxes.
+  let version = await ctx.db
+    .prepare(
+      `SELECT r2_key, mime_type, size_bytes FROM asset_version WHERE asset_id = ? AND kind = 'web'`,
+    )
+    .bind(ctx.assetId)
+    .first<{ r2_key: string; mime_type: string; size_bytes: number }>();
+  if (!version) {
+    version = await ctx.db
+      .prepare(
+        `SELECT r2_key, mime_type, size_bytes FROM asset_version WHERE asset_id = ? AND kind = 'original'`,
+      )
+      .bind(ctx.assetId)
+      .first<{ r2_key: string; mime_type: string; size_bytes: number }>();
+  }
+  if (!version) {
+    throw new Error(`No 'web' or 'original' asset_version found for asset ${ctx.assetId}`);
+  }
+
+  if (!version.mime_type.startsWith("image/")) {
+    return { skipped: true, reason: `mime_type ${version.mime_type} is not an image` };
+  }
+  if (version.size_bytes > FACE_DETECTION_MAX_BYTES) {
+    return {
+      skipped: true,
+      reason: `version is ${version.size_bytes} bytes, over the ${FACE_DETECTION_MAX_BYTES} face-detection cap`,
+    };
+  }
+
+  // Idempotent: don't re-detect (and duplicate rows) on retry.
+  const existing = await ctx.db
+    .prepare(`SELECT id FROM face_detection WHERE asset_id = ? LIMIT 1`)
+    .bind(ctx.assetId)
+    .first<{ id: string }>();
+  if (existing) {
+    return { skipped: true, reason: "face_detection rows already exist for this asset" };
+  }
+
+  const object = await ctx.bucket.get(version.r2_key);
+  if (!object) {
+    throw new Error(`R2 object ${version.r2_key} not found for asset ${ctx.assetId}`);
+  }
+  const bytes = new Uint8Array(await object.arrayBuffer());
+  const dataUri = `data:${version.mime_type};base64,${toBase64(bytes)}`;
+
+  const result = await ctx.ai.run(FACE_DETECTION_MODEL, {
+    task: "detect",
+    image: dataUri,
+    target: "face",
+  });
+
+  const candidates = Array.isArray((result as { objects?: unknown }).objects)
+    ? (result as { objects: unknown[] }).objects
+    : [];
+  const detected = candidates.filter(isValidDetectedObject);
+
+  const now = new Date().toISOString();
+  for (const box of detected) {
+    await ctx.db
+      .prepare(
+        `INSERT INTO face_detection (id, asset_id, x_min, y_min, x_max, y_max, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(ulid(), ctx.assetId, box.x_min, box.y_min, box.x_max, box.y_max, now)
+      .run();
+  }
+
+  return { done: true, facesDetected: detected.length };
 }
 
 // 64-bit difference hash (dHash): resize to 9x8 grayscale, then for each of

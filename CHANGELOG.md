@@ -6,6 +6,25 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- `face_clustering` pipeline step (closes #31): detection only, not
+  identity matching. Calls Moondream 3.1 on Workers AI (`@cf/moondream/
+  moondream3.1-9B-A2B`, "detect" task, target `"face"`) against the `web`
+  derivative (falling back to `original`), storing each returned bounding
+  box as a `face_detection` row (new migration `0006`) — normalized 0-1
+  coordinates, `person_id` nullable until a human confirms a name.
+  Idempotent (skips if rows already exist for the asset). New
+  `StudioAccessRole`-gated `permission` table now has a real consumer via
+  `env.AI`; added `[ai]` binding to `services/media/wrangler.toml`. The
+  `/assets` review UI now overlays detected boxes on the thumbnail and lets
+  a reviewer type a name to confirm each one (new `confirmFace` action,
+  resolves-or-creates a `person` row by name — distinct from the
+  email-keyed resolution used elsewhere). Automatic identity matching
+  (`reference_person_matching`) stays a stub — needs a separate embeddings
+  + Vectorize-or-similar decision. `services/media/vitest.config.ts` now
+  sets `remoteBindings: false`: the AI binding has no local simulation and
+  always needs a real authenticated remote proxy session, which CI doesn't
+  have and shouldn't need just to run unit tests — every test injects a
+  mock via `ctx.ai` instead of touching the real binding.
 - `publish` pipeline step (closes #30): guarded on `asset.status ===
   'approved'` — every asset already reaches this step automatically on
   upload as part of the normal pipeline cascade while still `draft`, so

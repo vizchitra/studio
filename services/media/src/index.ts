@@ -7,6 +7,7 @@ export interface Env extends AccessEnv {
   DB: D1Database;
   MEDIA_BUCKET: R2Bucket;
   MEDIA_QUEUE: Queue;
+  AI: Ai;
 }
 
 interface QueueMessage {
@@ -100,6 +101,7 @@ export default {
         db: env.DB,
         bucket: env.MEDIA_BUCKET,
         queue: env.MEDIA_QUEUE,
+        ai: env.AI,
       };
       try {
         await runPipelineStep(step, ctx);

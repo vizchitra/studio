@@ -761,3 +761,160 @@ describe("publish step", () => {
     expect(publicationCount?.count).toBe(1);
   });
 });
+
+describe("face_clustering step", () => {
+  let ctx: PipelineContext;
+
+  function makeAi(response: unknown) {
+    return { run: vi.fn().mockResolvedValue(response) } as unknown as Ai;
+  }
+
+  async function seedVersion(assetId: string, kind: "web" | "original", png: Uint8Array) {
+    const versionId = `test-version-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const r2Key = `${kind === "original" ? "originals" : "derivatives"}/${assetId}/test.png`;
+    await env.MEDIA_BUCKET.put(r2Key, png, { httpMetadata: { contentType: "image/png" } });
+    await env.DB.prepare(
+      `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
+       VALUES (?, ?, ?, 'image/png', ?, ?, 'deadbeef', ?)`,
+    )
+      .bind(versionId, assetId, kind, r2Key, png.byteLength, now)
+      .run();
+  }
+
+  beforeEach(async () => {
+    const assetId = `test-asset-${crypto.randomUUID()}`;
+    ctx = {
+      assetId,
+      db: env.DB,
+      bucket: env.MEDIA_BUCKET,
+      queue: env.MEDIA_QUEUE,
+      ai: makeAi({ objects: [] }),
+    };
+
+    const personId = `test-person-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await ctx.db.batch([
+      ctx.db
+        .prepare(`INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+        .bind(personId, "Test Person", now, now),
+      ctx.db
+        .prepare(
+          `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
+           VALUES (?, 'draft', 'photo', ?, ?, ?, ?, ?)`,
+        )
+        .bind(assetId, "test.png", now, now, personId, personId),
+    ]);
+  });
+
+  it("throws when there is no 'web' or 'original' asset_version row (retryable)", async () => {
+    await expect(runPipelineStep("face_clustering", ctx)).rejects.toThrow(
+      "No 'web' or 'original' asset_version found",
+    );
+  });
+
+  it("skips non-image mime types", async () => {
+    const versionId = `test-version-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await ctx.db
+      .prepare(
+        `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
+         VALUES (?, ?, 'original', 'application/pdf', ?, 0, 'deadbeef', ?)`,
+      )
+      .bind(versionId, ctx.assetId, `originals/${ctx.assetId}/doc.pdf`, now)
+      .run();
+
+    await runPipelineStep("face_clustering", ctx);
+
+    const run = await ctx.db
+      .prepare(
+        `SELECT status, output FROM asset_pipeline_run WHERE asset_id = ? AND step = 'face_clustering'`,
+      )
+      .bind(ctx.assetId)
+      .first<{ status: string; output: string }>();
+    expect(run?.status).toBe("done");
+    expect(JSON.parse(run?.output ?? "{}")).toMatchObject({ skipped: true });
+  });
+
+  it("stores a face_detection row per valid detected box", async () => {
+    await seedVersion(ctx.assetId, "web", makeTestPng(64, 64, 20));
+    ctx.ai = makeAi({
+      objects: [
+        { x_min: 0.1, y_min: 0.1, x_max: 0.4, y_max: 0.5 },
+        { x_min: 0.6, y_min: 0.2, x_max: 0.9, y_max: 0.7 },
+      ],
+    });
+
+    await runPipelineStep("face_clustering", ctx);
+
+    const rows = await ctx.db
+      .prepare(
+        `SELECT x_min, y_min, x_max, y_max, person_id FROM face_detection WHERE asset_id = ?`,
+      )
+      .bind(ctx.assetId)
+      .all<{
+        x_min: number;
+        y_min: number;
+        x_max: number;
+        y_max: number;
+        person_id: string | null;
+      }>();
+    expect(rows.results).toHaveLength(2);
+    expect(rows.results[0].person_id).toBeNull();
+  });
+
+  it("ignores malformed or out-of-range objects from the model response without failing", async () => {
+    await seedVersion(ctx.assetId, "web", makeTestPng(64, 64, 21));
+    ctx.ai = makeAi({
+      objects: [
+        { x_min: 0.1, y_min: 0.1, x_max: 1.4, y_max: 0.5 }, // x_max out of [0,1]
+        { x_min: 0.5, y_min: 0.5, x_max: 0.1, y_max: 0.1 }, // min > max
+        "not even an object",
+      ],
+    });
+
+    await runPipelineStep("face_clustering", ctx);
+
+    const count = await ctx.db
+      .prepare(`SELECT COUNT(*) as count FROM face_detection WHERE asset_id = ?`)
+      .bind(ctx.assetId)
+      .first<{ count: number }>();
+    expect(count?.count).toBe(0);
+  });
+
+  it("is idempotent on retry: does not re-detect once rows already exist", async () => {
+    await seedVersion(ctx.assetId, "web", makeTestPng(64, 64, 22));
+    ctx.ai = makeAi({ objects: [{ x_min: 0.1, y_min: 0.1, x_max: 0.4, y_max: 0.5 }] });
+
+    await runPipelineStep("face_clustering", ctx);
+    await runPipelineStep("face_clustering", ctx);
+
+    expect(ctx.ai!.run).toHaveBeenCalledTimes(1);
+    const count = await ctx.db
+      .prepare(`SELECT COUNT(*) as count FROM face_detection WHERE asset_id = ?`)
+      .bind(ctx.assetId)
+      .first<{ count: number }>();
+    expect(count?.count).toBe(1);
+  });
+
+  it("prefers the 'web' derivative over 'original' when both exist", async () => {
+    await seedVersion(ctx.assetId, "original", makeTestPng(64, 64, 23));
+    await seedVersion(ctx.assetId, "web", makeTestPng(32, 32, 24));
+
+    await runPipelineStep("face_clustering", ctx);
+
+    const [, inputs] = (ctx.ai!.run as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      { image: string },
+    ];
+    const webVersion = await ctx.db
+      .prepare(`SELECT r2_key FROM asset_version WHERE asset_id = ? AND kind = 'web'`)
+      .bind(ctx.assetId)
+      .first<{ r2_key: string }>();
+    const webObject = await ctx.bucket.get(webVersion!.r2_key);
+    const webBytes = new Uint8Array(await webObject!.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < webBytes.length; i++) binary += String.fromCharCode(webBytes[i]);
+    expect(inputs.image).toBe(`data:image/png;base64,${btoa(binary)}`);
+  });
+});
