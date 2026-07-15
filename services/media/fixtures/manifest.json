@@ -1,0 +1,106 @@
+[
+  {
+    "file": "portrait-like-bright.jpg",
+    "source": "generated",
+    "case": "single-subject portrait stand-in",
+    "exercises": ["face_clustering", "reference_person_matching"],
+    "notes": "Synthetic radial-gradient blob simulating one roughly-centered subject, NOT a real face. Moondream will likely detect 0 faces on this — that's expected, not a bug; it's a real-photo-shaped hole in this fixture set until a real published-photo replacement lands."
+  },
+  {
+    "file": "portrait-like-dim.jpg",
+    "source": "generated",
+    "case": "single-subject portrait stand-in",
+    "exercises": ["face_clustering", "reference_person_matching"],
+    "notes": "Synthetic radial-gradient blob simulating one roughly-centered subject, NOT a real face. Moondream will likely detect 0 faces on this — that's expected, not a bug; it's a real-photo-shaped hole in this fixture set until a real published-photo replacement lands."
+  },
+  {
+    "file": "portrait-like-side.jpg",
+    "source": "generated",
+    "case": "single-subject portrait stand-in",
+    "exercises": ["face_clustering", "reference_person_matching"],
+    "notes": "Synthetic radial-gradient blob simulating one roughly-centered subject, NOT a real face. Moondream will likely detect 0 faces on this — that's expected, not a bug; it's a real-photo-shaped hole in this fixture set until a real published-photo replacement lands."
+  },
+  {
+    "file": "group-like-3.jpg",
+    "source": "generated",
+    "case": "group shot stand-in, 3+ subjects",
+    "exercises": ["face_clustering"],
+    "notes": "Synthetic image with three radial-gradient blobs simulating three subjects, NOT a real group photo. Moondream will likely detect 0 faces on this — that's expected, not a bug; it's a real-photo-shaped hole in this fixture set until a real published-photo replacement lands."
+  },
+  {
+    "file": "near-duplicate-original.jpg",
+    "source": "generated",
+    "case": "near-duplicate pair",
+    "exercises": ["duplicate_detection"],
+    "notes": "Identical source pixels re-encoded at different JPEG quality (95 vs 55), simulating the same photo re-uploaded/re-compressed. Should hash within the Hamming threshold of each other."
+  },
+  {
+    "file": "near-duplicate-recompressed.jpg",
+    "source": "generated",
+    "case": "near-duplicate pair",
+    "exercises": ["duplicate_detection"],
+    "notes": "Identical source pixels re-encoded at different JPEG quality (95 vs 55), simulating the same photo re-uploaded/re-compressed. Should hash within the Hamming threshold of each other."
+  },
+  {
+    "file": "distinct-control.jpg",
+    "source": "generated",
+    "case": "distinct image, not a duplicate of anything else in this set",
+    "exercises": ["duplicate_detection"],
+    "notes": "Control case — verifies unrelated images are not flagged as duplicates."
+  },
+  {
+    "file": "blurry.jpg",
+    "source": "generated",
+    "case": "low blur-variance (flat/no edges)",
+    "exercises": ["quality_scoring"],
+    "notes": "Flat mid-grey image — no edges for the Laplacian-variance blur heuristic to find."
+  },
+  {
+    "file": "underexposed.jpg",
+    "source": "generated",
+    "case": "underexposed (very dark)",
+    "exercises": ["quality_scoring"],
+    "notes": "Flat very-dark image, well below UNDEREXPOSED_MEAN_THRESHOLD."
+  },
+  {
+    "file": "overexposed.jpg",
+    "source": "generated",
+    "case": "overexposed (very bright)",
+    "exercises": ["quality_scoring"],
+    "notes": "Flat very-bright image, well above OVEREXPOSED_MEAN_THRESHOLD."
+  },
+  {
+    "file": "sharp-control.jpg",
+    "source": "generated",
+    "case": "high blur-variance (sharp), mid exposure",
+    "exercises": ["quality_scoring"],
+    "notes": "High-contrast checkerboard — control case, verifies sharp/well-exposed images aren't flagged."
+  },
+  {
+    "file": "text-heavy.jpg",
+    "source": "generated",
+    "case": "text-heavy (slide/signage stand-in)",
+    "exercises": ["vision_tagging", "ocr"],
+    "notes": "Real rendered text (Photon's built-in Roboto font draw_text), not a photo of an actual slide."
+  },
+  {
+    "file": "no-exif.png",
+    "source": "generated",
+    "case": "non-JPEG format with no EXIF data",
+    "exercises": ["exif_extraction", "preview_generation"],
+    "notes": "PNG (not JPEG) with no EXIF segment at all — covers exif_extraction's null-handling path and a non-JPEG source format."
+  },
+  {
+    "file": "sample.pdf",
+    "source": "generated",
+    "case": "non-image asset",
+    "exercises": [
+      "preview_generation",
+      "exif_extraction",
+      "duplicate_detection",
+      "quality_scoring",
+      "face_clustering"
+    ],
+    "notes": "Minimal valid single-page PDF — exercises every image-only step's non-image skip path at once."
+  }
+]

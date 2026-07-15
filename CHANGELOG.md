@@ -6,6 +6,24 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Pipeline validation fixture set + seed script (closes #38):
+  `services/media/fixtures/` holds 14 synthetic images/PDF (single-subject
+  and 3-subject "portrait"/"group" stand-ins, a near-duplicate pair +
+  distinct control, blurry/underexposed/overexposed/sharp-control,
+  real-rendered-text, no-EXIF PNG, minimal PDF) plus a `manifest.json`
+  noting what each one exercises. All generated procedurally
+  (`scripts/generate-fixtures.ts`, via `@cf-wasm/photon`'s Node build) —
+  not real photos of real people. The original plan (reuse already-
+  published VizChitra photos, which already have consent for public
+  display) needs a human to source/curate; swapping real photos in for the
+  portrait/group-shot cases is a manual follow-up, noted in the manifest.
+  `scripts/seed-fixtures.ts` uploads them to R2 under a dedicated
+  `fixtures/` prefix and creates the corresponding `asset`/`asset_version`
+  rows (idempotent, shells out to `wrangler d1 execute`/`r2 object put`
+  since a plain Node script can't reach a live Worker's bindings or Queue)
+  — seeded assets stay `status: draft` with no pipeline runs until resumed
+  via the existing admin Reprocess action (#32). Run commands documented
+  in SETUP.md.
 - `face_clustering` pipeline step (closes #31): detection only, not
   identity matching. Calls Moondream 3.1 on Workers AI (`@cf/moondream/
   moondream3.1-9B-A2B`, "detect" task, target `"face"`) against the `web`
