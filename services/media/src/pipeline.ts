@@ -80,13 +80,18 @@ async function exifExtractionStep(ctx: PipelineContext) {
   return { done: true, hasExif: exif !== null };
 }
 
-// Longest-edge cap per derivative kind. Resizing happens in-Worker via
-// @cf-wasm/photon (WASM) rather than Cloudflare Image Transformations, which
-// would need the original re-fetched over HTTP through a zone with Image
-// Resizing enabled — this avoids that extra infra and plan dependency.
-const PREVIEW_SIZES: { kind: "web" | "thumbnail"; maxDimension: number }[] = [
-  { kind: "web", maxDimension: 1600 },
-  { kind: "thumbnail", maxDimension: 400 },
+// Longest-edge cap + JPEG quality per derivative kind. Resizing happens
+// in-Worker via @cf-wasm/photon (WASM) rather than Cloudflare Image
+// Transformations, which would need the original re-fetched over HTTP
+// through a zone with Image Resizing enabled — this avoids that extra infra
+// and plan dependency. JPEG over WebP because photon-rs's get_bytes_webp()
+// takes no quality argument (lossless only) — for simple/already-compressed
+// source images that reliably came out *larger* than the original, which
+// defeats the point of a "web" derivative. get_bytes_jpeg(quality) gives
+// real lossy control.
+const PREVIEW_SIZES: { kind: "web" | "thumbnail"; maxDimension: number; quality: number }[] = [
+  { kind: "web", maxDimension: 1600, quality: 82 },
+  { kind: "thumbnail", maxDimension: 400, quality: 75 },
 ];
 
 // Workers cap memory around 128MB; stay well clear of that for decode + resize.
@@ -132,7 +137,7 @@ async function previewGenerationStep(ctx: PipelineContext) {
 
   const created: { kind: string; versionId: string; reused: boolean }[] = [];
   try {
-    for (const { kind, maxDimension } of PREVIEW_SIZES) {
+    for (const { kind, maxDimension, quality } of PREVIEW_SIZES) {
       // Idempotent: a retried run must not recreate (or duplicate-key on) a
       // derivative an earlier partial attempt already produced.
       const existing = await ctx.db
@@ -152,21 +157,21 @@ async function previewGenerationStep(ctx: PipelineContext) {
       const resized = resize(sourceImage, width, height, SamplingFilter.Lanczos3);
       let outputBytes: Uint8Array;
       try {
-        outputBytes = resized.get_bytes_webp();
+        outputBytes = resized.get_bytes_jpeg(quality);
       } finally {
         resized.free();
       }
 
       const versionId = ulid();
-      const r2Key = `derivatives/${ctx.assetId}/${kind}.webp`;
+      const r2Key = `derivatives/${ctx.assetId}/${kind}.jpg`;
       const checksum = await sha256Hex(outputBytes as Uint8Array<ArrayBuffer>);
       const now = new Date().toISOString();
 
-      await ctx.bucket.put(r2Key, outputBytes, { httpMetadata: { contentType: "image/webp" } });
+      await ctx.bucket.put(r2Key, outputBytes, { httpMetadata: { contentType: "image/jpeg" } });
       await ctx.db
         .prepare(
           `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, width, height, checksum, created_at)
-           VALUES (?, ?, ?, 'image/webp', ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, 'image/jpeg', ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           versionId,
