@@ -6,6 +6,27 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Asset gallery + review UI at `/assets` in `apps/studio` (closes #15):
+  lists uploaded assets (newest first, capped at 50) with thumbnail,
+  status badge, kind, EXIF summary, and uploader name. Approve/reject
+  actions update `asset.status` to `approved`/`archived` — `archived`
+  is the closest fit for "rejected" in the existing entity status enum,
+  there's no dedicated rejected state. New `/media/[...key]` route
+  streams objects straight out of R2 so thumbnails actually render.
+- `duplicate_detection` pipeline step (closes #14): computes a 64-bit
+  dHash of the `original` image via `@cf-wasm/photon`, stores it on
+  `asset.perceptual_hash` (new migration `0004`), flags likely
+  duplicates via a new `possible_duplicate_of` relationship kind when
+  another asset's hash is within Hamming distance 10. Scoped to compare
+  against all assets rather than only the same Event — `session_inference`
+  (which would associate an asset with an Event) doesn't exist yet.
+- `preview_generation` pipeline step (closes #13): generates `web` (max
+  1600px) and `thumbnail` (max 400px) `AssetVersion` rows from the
+  original image via `@cf-wasm/photon`, resizing in-Worker rather than
+  via Cloudflare Image Transformations (would need the original
+  re-fetched over HTTP through a zone with Image Resizing enabled — a
+  new endpoint and a plan-tier dependency this avoids). Idempotent on
+  retry.
 - Upload UI in `apps/studio` (closes #5): a form on the home page whose
   SvelteKit action forwards the file to the media service's `/assets`
   endpoint, reusing the same `Cf-Access-Jwt-Assertion` header Access
@@ -87,6 +108,17 @@ Running log of what changed and why. Newest first.
 
 ### Fixed
 
+- `apps/studio/tsconfig.json` was missing `"types": ["@cloudflare/workers-types"]`
+  — `D1Database`/`R2Bucket`/`Queue` in `app.d.ts` only "worked" because
+  `skipLibCheck` silently skips checking inside `.d.ts` files; a plain
+  `.ts` file using the same global types (the gallery's
+  `+page.server.ts`) surfaced the gap as a real error. Fixed properly.
+- `preview_generation`'s derivatives used `photon-rs`'s `get_bytes_webp()`,
+  which takes no quality argument (lossless only). Confirmed on a real
+  upload: a 7.4KB original produced a 27.7KB thumbnail and a 17.7KB web
+  version — both larger than the source, the opposite of the point.
+  Switched to `get_bytes_jpeg(quality)` for real lossy control
+  (web@82, thumbnail@75).
 - Every upload crashed with Cloudflare error 1101: `asset.created_by`/
   `updated_by` are FKs to `person.id` (a ULID), not raw email addresses,
   and `person` starts empty — the D1 batch insert violated the FK
