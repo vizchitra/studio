@@ -57,6 +57,18 @@
             </form>
           </div>
         {/if}
+
+        {#if data.reprocessEnabled}
+          <form method="POST" action="?/reprocess" class="asset-reprocess">
+            <input type="hidden" name="assetId" value={asset.id} />
+            <select name="step" aria-label="Pipeline step">
+              {#each data.pipelineSteps as step (step)}
+                <option value={step}>{step}</option>
+              {/each}
+            </select>
+            <button type="submit">Reprocess</button>
+          </form>
+        {/if}
       </div>
     {/each}
   </div>
@@ -131,5 +143,18 @@
     display: flex;
     gap: 0.5rem;
     padding: 0 0.75rem 0.75rem;
+  }
+
+  .asset-reprocess {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0 0.75rem 0.75rem;
+    border-top: 1px dashed var(--color-border);
+    padding-top: 0.5rem;
+  }
+
+  .asset-reprocess select {
+    flex: 1;
+    min-width: 0;
   }
 </style>
