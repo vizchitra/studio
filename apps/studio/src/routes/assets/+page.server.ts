@@ -17,6 +17,16 @@ interface AssetRow {
   quality_flags_json: string | null;
 }
 
+interface FaceRow {
+  id: string;
+  asset_id: string;
+  x_min: number;
+  y_min: number;
+  x_max: number;
+  y_max: number;
+  person_name: string | null;
+}
+
 export const load: PageServerLoad = async ({ platform, locals }) => {
   const db = platform?.env.DB;
   if (!db) error(500, "DB binding not available");
@@ -64,6 +74,29 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
     return { ...row, exifSummary, qualityFlags };
   });
 
+  const facesByAsset = new Map<string, FaceRow[]>();
+  if (results.length > 0) {
+    const placeholders = results.map(() => "?").join(", ");
+    const { results: faceRows } = await db
+      .prepare(
+        `SELECT fd.id, fd.asset_id, fd.x_min, fd.y_min, fd.x_max, fd.y_max, p.name as person_name
+         FROM face_detection fd
+         LEFT JOIN person p ON p.id = fd.person_id
+         WHERE fd.asset_id IN (${placeholders})`,
+      )
+      .bind(...results.map((row) => row.id))
+      .all<FaceRow>();
+    for (const face of faceRows) {
+      const list = facesByAsset.get(face.asset_id) ?? [];
+      list.push(face);
+      facesByAsset.set(face.asset_id, list);
+    }
+  }
+  const assetsWithFaces = assets.map((asset) => ({
+    ...asset,
+    faces: facesByAsset.get(asset.id) ?? [],
+  }));
+
   let reprocessEnabled = false;
   if (locals.user) {
     const personId = await getOrCreatePersonId(db, locals.user.email);
@@ -71,7 +104,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
     reprocessEnabled = canReprocess(role);
   }
 
-  return { assets, reprocessEnabled, pipelineSteps: MEDIA_PIPELINE_STEPS };
+  return { assets: assetsWithFaces, reprocessEnabled, pipelineSteps: MEDIA_PIPELINE_STEPS };
 };
 
 // asset.updated_by is a FK to person.id, not a raw email — same resolution
@@ -88,6 +121,24 @@ async function getOrCreatePersonId(db: D1Database, email: string): Promise<strin
   await db
     .prepare(`INSERT INTO person (id, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`)
     .bind(id, email, email, now, now)
+    .run();
+  return id;
+}
+
+// Resolve-or-create by name rather than email — a confirmed face has no
+// email to key on, unlike getOrCreatePersonId's Access-authenticated users.
+async function getOrCreatePersonByName(db: D1Database, name: string): Promise<string> {
+  const existing = await db
+    .prepare(`SELECT id FROM person WHERE name = ? COLLATE NOCASE`)
+    .bind(name)
+    .first<{ id: string }>();
+  if (existing) return existing.id;
+
+  const id = ulid();
+  const now = new Date().toISOString();
+  await db
+    .prepare(`INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+    .bind(id, name, now, now)
     .run();
   return id;
 }
@@ -195,6 +246,40 @@ export const actions: Actions = {
     if (!canReprocess(role)) return fail(403, { error: "Insufficient permissions to reprocess" });
 
     await queue.send({ assetId, step: step as MediaPipelineStep });
+    redirect(303, "/assets");
+  },
+
+  // Manual identity confirmation for a detected face box (closes #31) —
+  // automatic matching (reference_person_matching) is a separate, later
+  // step; this just lets a human attach a name to a box Moondream found.
+  confirmFace: async ({ request, platform, locals }) => {
+    if (!locals.user) return fail(401, { error: "Not signed in" });
+    const form = await request.formData();
+    const faceId = form.get("faceId");
+    const personName = form.get("personName");
+    if (typeof faceId !== "string") return fail(400, { error: "Missing faceId" });
+    if (typeof personName !== "string" || personName.trim() === "") {
+      return fail(400, { error: "Missing person name" });
+    }
+
+    const db = platform?.env.DB;
+    if (!db) return fail(500, { error: "DB binding not available" });
+
+    const face = await db
+      .prepare(`SELECT asset_id FROM face_detection WHERE id = ?`)
+      .bind(faceId)
+      .first<{ asset_id: string }>();
+    if (!face) return fail(404, { error: "Face not found" });
+
+    const personId = await getOrCreatePersonId(db, locals.user.email);
+    const role = await getEffectiveRole(db, personId, "asset", face.asset_id);
+    if (!canReview(role)) return fail(403, { error: "Insufficient permissions to confirm a face" });
+
+    const confirmedPersonId = await getOrCreatePersonByName(db, personName.trim());
+    await db
+      .prepare(`UPDATE face_detection SET person_id = ? WHERE id = ?`)
+      .bind(confirmedPersonId, faceId)
+      .run();
     redirect(303, "/assets");
   },
 };

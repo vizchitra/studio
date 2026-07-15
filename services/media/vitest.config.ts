@@ -10,6 +10,14 @@ export default defineConfig(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: "./wrangler.toml" },
+        // The AI binding has no local simulation — it always needs a real,
+        // authenticated remote proxy session, which CI doesn't have (and
+        // shouldn't need just to run unit tests). No pipeline test calls
+        // env.AI for real; they all inject a mock via ctx.ai directly (see
+        // pipeline.test.ts's face_clustering describe block), so disabling
+        // remote bindings here is safe — nothing needs the real AI binding
+        // to exist.
+        remoteBindings: false,
         miniflare: {
           bindings: { TEST_MIGRATIONS: migrations },
         },

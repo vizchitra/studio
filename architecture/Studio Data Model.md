@@ -62,6 +62,21 @@ caveats as `perceptual_hash`.
 Represents a concrete file. Types: - original - review - edited - web -
 social - thumbnail
 
+### FaceDetection
+
+A detected face bounding box on an Asset, computed by the
+`face_clustering` pipeline step via Moondream 3.1 on Workers AI (detection
+only — see [DESIGN.md](../DESIGN.md) for why this model, and why matching
+a box to a Person is a separate, later decision).
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| id | UUID/ULID | no | |
+| asset_id | Asset id (FK) | no | |
+| x_min, y_min, x_max, y_max | real (0-1) | no | normalized fraction of image width/height, not pixels |
+| person_id | Person id (FK) | yes | null until a human confirms a name against the box in the review UI |
+| created_at | timestamp | no | |
+
 ### Collection
 
 Editorial grouping.

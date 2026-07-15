@@ -109,6 +109,18 @@ export interface AssetVersion {
   created_at: string;
 }
 
+/** Coordinates are normalized 0-1 (fraction of image width/height), not pixels. */
+export interface FaceDetection {
+  id: string;
+  asset_id: string;
+  x_min: number;
+  y_min: number;
+  x_max: number;
+  y_max: number;
+  person_id?: string; // Person id, set once a human confirms a name
+  created_at: string;
+}
+
 export interface Collection extends EntityBase {
   type: "collection";
   name: string;
