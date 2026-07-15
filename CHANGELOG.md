@@ -4,6 +4,35 @@ Running log of what changed and why. Newest first.
 
 ## Unreleased
 
+### Added
+
+- Shared UI component layer at `apps/studio/src/lib/components/` (closes
+  #48): `Container` (narrow/wide), `Stack`, `Cluster`, `Grid` (layout
+  primitives extracted from ad hoc per-route CSS); `Card`, `Badge`
+  (namespaced by `kind` so editorial and pipeline-step status vocabularies
+  can't collide), `Notice`, `Button` (primary/danger/tertiary), `Table`
+  (content components, some extraction, some newly designed). `/`,
+  `/assets`, and `/admin/pipeline-validation` all now consume these
+  instead of route-local classes for the parts they share; page-specific
+  markup (face-box overlays, the validation grid's per-cell layout) stays
+  route-scoped. `Combobox` and `Modal` are deliberately not built yet —
+  see `UI_PRINCIPLES.md`.
+- App shell with a top `Nav` and a collapsible left `SidePanel`
+  (`apps/studio/src/lib/components/Nav.svelte`, `SidePanel.svelte`,
+  wired into `src/routes/+layout.svelte`): every route now renders inside
+  a persistent shell instead of each page linking to the next inline. The
+  sidebar's Pipeline Validation link only renders for administrators, via
+  a new root `+layout.server.ts` reusing the same `canReprocess` check as
+  `/assets`. The collapse toggle is a pure-CSS checkbox hack (no JS), per
+  the "progressive enhancement, not a client-side app" principle — it
+  resets on a full page reload, same as other unpersisted UI state here.
+- `apps/studio/src/lib/server/permissions.ts`: the person/permission
+  lookup helpers (`getOrCreatePersonId`, `getOrCreatePersonByName`,
+  `getEffectiveRole`, plus a new `getBaselineRoleByEmail` convenience)
+  were duplicated across `assets/+page.server.ts` and
+  `admin/pipeline-validation/+page.server.ts`; extracted to one module now
+  that the root layout needs the same baseline-role check too.
+
 ### Fixed
 
 - `/admin/pipeline-validation`'s grid was squeezed into

@@ -1,7 +1,11 @@
 import { error, fail, redirect } from "@sveltejs/kit";
-import { ulid, canReview, canReprocess, MEDIA_PIPELINE_STEPS } from "@studio/shared";
+import { canReview, canReprocess, MEDIA_PIPELINE_STEPS } from "@studio/shared";
+import {
+  getEffectiveRole,
+  getOrCreatePersonByName,
+  getOrCreatePersonId,
+} from "$lib/server/permissions";
 import type { Actions, PageServerLoad } from "./$types";
-import type { StudioAccessRole } from "@studio/domain";
 import type { MediaPipelineStep } from "@studio/shared";
 
 interface AssetRow {
@@ -106,69 +110,6 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
 
   return { assets: assetsWithFaces, reprocessEnabled, pipelineSteps: MEDIA_PIPELINE_STEPS };
 };
-
-// asset.updated_by is a FK to person.id, not a raw email — same resolution
-// as services/media/src/index.ts's getOrCreatePersonId.
-async function getOrCreatePersonId(db: D1Database, email: string): Promise<string> {
-  const existing = await db
-    .prepare(`SELECT id FROM person WHERE email = ?`)
-    .bind(email)
-    .first<{ id: string }>();
-  if (existing) return existing.id;
-
-  const id = ulid();
-  const now = new Date().toISOString();
-  await db
-    .prepare(`INSERT INTO person (id, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`)
-    .bind(id, email, email, now, now)
-    .run();
-  return id;
-}
-
-// Resolve-or-create by name rather than email — a confirmed face has no
-// email to key on, unlike getOrCreatePersonId's Access-authenticated users.
-async function getOrCreatePersonByName(db: D1Database, name: string): Promise<string> {
-  const existing = await db
-    .prepare(`SELECT id FROM person WHERE name = ? COLLATE NOCASE`)
-    .bind(name)
-    .first<{ id: string }>();
-  if (existing) return existing.id;
-
-  const id = ulid();
-  const now = new Date().toISOString();
-  await db
-    .prepare(`INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
-    .bind(id, name, now, now)
-    .run();
-  return id;
-}
-
-// Effective StudioAccessRole for a specific entity: an entity-level override
-// (a `permission` row scoped to that entity) takes precedence over the
-// baseline grant (entity_type = 'studio', entity_id = 'global') — see
-// architecture/Studio Data Model.md, Permission section.
-async function getEffectiveRole(
-  db: D1Database,
-  personId: string,
-  entityType: string,
-  entityId: string,
-): Promise<StudioAccessRole | null> {
-  const override = await db
-    .prepare(
-      `SELECT role FROM permission WHERE entity_type = ? AND entity_id = ? AND person_id = ?`,
-    )
-    .bind(entityType, entityId, personId)
-    .first<{ role: StudioAccessRole }>();
-  if (override) return override.role;
-
-  const baseline = await db
-    .prepare(
-      `SELECT role FROM permission WHERE entity_type = 'studio' AND entity_id = 'global' AND person_id = ?`,
-    )
-    .bind(personId)
-    .first<{ role: StudioAccessRole }>();
-  return baseline?.role ?? null;
-}
 
 async function setStatus(
   db: D1Database,

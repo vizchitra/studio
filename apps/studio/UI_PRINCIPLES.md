@@ -88,101 +88,82 @@ Defined in `src/app.css`, shared with the wider VizChitra brand system:
 ## Current patterns
 
 Grounded in what's actually built (`assets/+page.svelte`,
-`admin/pipeline-validation/`), not aspirational:
+`admin/pipeline-validation/`, `src/lib/components/`):
 
-- **Status badge** — `.asset-status.status-{status}` — pill-shaped,
-  uppercase, small; a neutral default (`--color-muted`) with specific
-  overrides per status (e.g. `.status-approved` in teal). Add a
-  `status-{x}` rule per new status rather than inline-styling one-offs.
-- **Card** — `.asset-card` — bordered, rounded, clipped overflow,
-  flex-column. The unit of every grid view in the app so far.
-- **Grid** — `repeat(auto-fill, minmax(220px, 1fr))` — reflows by
-  available width rather than a fixed column count. Reuse this instead
-  of hand-rolling a new grid per page.
-- **Notices** — `.content-notice`, with `.notice-error` /
-  `.notice-success` modifiers — for page-level feedback (form errors,
-  confirmations), not per-card state (that's the status badge's job).
+- **Status badge** — `<Badge kind="editorial" | "pipeline" value={status} />`
+  (`src/lib/components/Badge.svelte`) — pill-shaped, uppercase, small; a
+  neutral default (`--color-muted`) with specific overrides per
+  `kind`-`value` pair (e.g. `.ui-badge--editorial-approved` in teal). The
+  `kind` prop namespaces the class so editorial status
+  (draft/review/approved/published/archived) and pipeline-step status
+  (not_run/running/done/failed) can't collide. Add a
+  `.ui-badge--{kind}-{value}` rule per new status rather than
+  inline-styling one-offs.
+- **Card** — `<Card>` (`Card.svelte`) — bordered, rounded, clipped
+  overflow, flex-column. The unit of every grid view in the app so far.
+- **Grid** — `<Grid min="220px">` (`Grid.svelte`) — `auto-fill
+  minmax(min, 1fr)`, reflows by available width rather than a fixed
+  column count. Reuse this instead of hand-rolling a new grid per page.
+- **Notices** — `<Notice kind="error" | "success">` (`Notice.svelte`),
+  wrapping `.content-notice` / `.notice-error` / `.notice-success` — for
+  page-level feedback (form errors, confirmations), not per-card state
+  (that's the status badge's job).
 - **Overlay annotation** — `.face-box` / `.face-label` — absolutely
   positioned over an image using fractional coordinates
   (`x_min * 100%`), for anything that needs to point at a region of a
-  photo. Will matter again once face_clustering's Moondream bounding
-  boxes (#31) and any future OCR region output land.
-- **Wide container** — `.wide-container` (`max-width: var(--width-content)`,
-  80rem) — `.content-container`'s 48rem max-width is a prose measure; a
-  data table with a column per pipeline step (`admin/pipeline-validation/`)
-  needs real width instead. This is the wide variant the Container entry
-  below already called for, added ahead of the full extraction. Use
-  `.wide-container` for grids/tables, `.content-container` for everything
-  read top-to-bottom.
+  photo. Not yet a shared component (only two consumers, both with
+  slightly different markup needs); revisit if a third shows up.
+- **Container** — `<Container>` / `<Container wide>` (`Container.svelte`)
+  — wraps `.content-container` (48rem, prose measure — forms/text) or
+  `.wide-container` (`var(--width-content)`, 80rem — data grids/tables).
+- **Button** — `<Button variant="primary" | "danger" | "tertiary">`
+  (`Button.svelte`) — primary for Approve/Publish, danger for Reject,
+  tertiary for lower-stakes actions (Reprocess, Confirm, Upload's
+  secondary case). Defaults to `type="submit"` since every action here is
+  a form.
+- **Table** — `<Table>` (`Table.svelte`) — scroll-wrapped `<table>`;
+  pass `<thead>`/`<tbody>` as slot content. Used by pipeline validation's
+  one-row-per-fixture, one-column-per-step grid.
+- **Stack / Cluster** — `<Stack gap>` (vertical rhythm) / `<Cluster gap>`
+  (wrapping inline groups) — thin flex wrappers over `--space-flow-*`
+  values, for the ad hoc `flex-column`/`flex-wrap` rules that used to be
+  hand-rolled per page (`.asset-meta`, `.asset-actions`).
+- **Nav + SidePanel app shell** — `src/routes/+layout.svelte` composes
+  `<Nav>` (top bar: hamburger toggle, brand, signed-in user) and
+  `<SidePanel>` (left, primary nav links, admin-only links gated by
+  `canReprocess` from `+layout.server.ts`) around every route's content.
+  The sidebar collapse is a pure-CSS checkbox hack (`#sidepanel-toggle`
+  in `Nav.svelte`, `:checked ~ .app-body .side-panel` in
+  `+layout.svelte`) — no JS, per the progressive-enhancement principle.
+  It resets on a full page reload, same as any other unpersisted UI
+  state in this app today (nothing here uses `use:enhance` yet).
 
 ## Components
 
-No shared component layer exists yet — each route defines its own
-`<style>` block with route-scoped classes (`.asset-card`, not a
-`<Card>` component). That was fine at two pages; the pipeline
-validation view (#39) makes a third, and the attribution/tag-picker and
-bulk-import work (see the media issues) will add more, so it's worth
-extracting now rather than letting the duplication compound. Two groups:
+`src/lib/components/` — each is a thin Svelte wrapper over what used to
+be a route-local CSS class, re-exported from `src/lib/components/index.ts`.
+Two groups:
 
-**Layout primitives** — no visual styling, just spacing/arrangement.
-Mostly already exist informally; this is extraction, not new design:
+**Layout primitives** — no visual styling, just spacing/arrangement:
+`Container`, `Stack`, `Cluster`, `Grid`.
 
-- `Container` — needs two widths, not one. The existing
-  `.content-container` is prose-width (48rem, right for forms/text);
-  data grids want `--width-content` (80rem) — that variant now exists as
-  `.wide-container` (see Current patterns), ahead of a real `<Container>`
-  component with a narrow/wide prop.
-- `Stack` — consistent vertical rhythm using `--space-flow-*`. Ad hoc
-  today (`.asset-meta`'s `flex-column, gap: 0.25rem`).
-- `Cluster` — wrapping inline groups with consistent gap (tag lists,
-  button rows). Ad hoc today (`.asset-actions`).
-- `Grid` — the `auto-fill minmax(220px, 1fr)` reflow pattern, already
-  used for the asset gallery, about to be reused for pipeline
-  validation's fixture thumbnails. Distinct from Cluster — don't reach
-  for Cluster on a thumbnail wall.
+**Content and interaction components**: `Card`, `Badge`, `Notice`,
+`Button`, `Table`, plus the app-shell pair `Nav` / `SidePanel` (these two
+are new design, not extraction — nothing rendered a global nav before).
 
-**Content and interaction components** — some exist informally, some
-are net-new, driven by what's already filed as work:
+**Not built yet:**
 
-- `Card` — generalize `.asset-card`.
-- `Badge` — generalize `.asset-status.status-*`. Needs to carry two
-  separate status vocabularies without them colliding: editorial status
-  (draft/review/approved/published/archived) and pipeline-step status
-  (pending/running/done/failed) — a `kind`/namespace, not one flat
-  `status-*` class list.
-- `Table` — net new. Nothing built so far is tabular (everything is
-  card-grid), but pipeline validation (#39) is "one row per fixture
-  asset, one column per pipeline step" — that's a table, not a card
-  grid.
-- `Button` — net new as a real component, not just the reset. Buttons
-  currently get zero visual styling beyond
-  `background: transparent; cursor: pointer` — clickable text, not
-  visually buttons, which undercuts the "plain, labeled, hard to
-  misclick" principle above. Needs primary/danger/tertiary variants
-  (Approve/Publish vs Reject vs Reprocess shouldn't look equally
-  weighted).
-- `Combobox` (autocomplete) — net new, harder than a plain form
-  control. Needed twice: the attribution person-picker and the
-  venue/session tag-picker, both of which explicitly call for
-  "autocomplete against existing records, not free text." Try a native
-  `<datalist>`-backed input first — works without JS, matches the
-  progressive-enhancement principle — and only reach for a custom JS
-  combobox if `<datalist>`'s limits (no inline "create new," no rich
-  item rendering) actually block something.
-- `Notice` — already exists (`.content-notice` /
-  `.notice-error` / `.notice-success`), just needs naming/extracting
-  alongside the rest rather than new design work.
-
-**Deliberately not building:** `Modal`. Nothing built so far uses one —
-face-confirm is inline on the card — and a modal cuts against the
-"AI output stays inline, not tucked away" principle. The one plausible
-future case is a full-resolution image lightbox; don't build it
-speculatively.
-
-Build order: Container/Stack/Cluster/Card/Badge/Notice first — these
-are extraction of what already exists, low risk. Table/Button/Combobox
-next, since the filed issues (attribution prompt, bulk import, pipeline
-validation) need them and nothing today provides them.
+- `Combobox` (autocomplete) — needed by the attribution person-picker
+  and venue/session tag-picker issues, neither of which has landed yet.
+  Try a native `<datalist>`-backed input first when that work starts —
+  works without JS — and only reach for a custom JS combobox if
+  `<datalist>`'s limits (no inline "create new," no rich item rendering)
+  actually block something. Not built speculatively ahead of a consumer.
+- `Modal` — deliberately not building. Nothing built so far uses one —
+  face-confirm is inline on the card — and a modal cuts against the
+  "AI output stays inline, not tucked away" principle. The one plausible
+  future case is a full-resolution image lightbox; don't build it
+  speculatively.
 
 ## Open questions
 
