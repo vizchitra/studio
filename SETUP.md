@@ -124,6 +124,31 @@ npm run dev                              # apps/studio, SvelteKit dev server
 cd services/media && wrangler dev        # media Worker + queue consumer
 ```
 
+### Pipeline validation fixtures (issue #38)
+
+`services/media/fixtures/` holds a synthetic test-image set covering the
+cases each pipeline step needs to be checked against (see
+`fixtures/manifest.json` for what each one exercises and why — every
+fixture is procedurally generated, not a real photo; see the manifest
+notes on the portrait/group-shot ones specifically). Regenerate them
+(e.g. after changing sizes or adding a case) and seed them into D1 + R2:
+
+```
+cd services/media
+node scripts/generate-fixtures.ts        # regenerates fixtures/ + manifest.json
+node scripts/seed-fixtures.ts            # seeds local D1/R2 (wrangler dev storage)
+node scripts/seed-fixtures.ts --remote   # seeds the live Cloudflare D1/R2 instead
+```
+
+(`npm run generate-fixtures` / `npm run seed-fixtures` from `services/media`
+are equivalent aliases for the first two; pass `-- --remote` for the third.)
+
+Seeding creates `asset`/`asset_version` rows (status `draft`) and uploads
+each fixture to R2 under `fixtures/` — idempotent, safe to re-run. It does
+not start pipeline processing (no way to send a Queue message from a CLI
+script) — use the `/assets` review UI's admin Reprocess action to resume
+a seeded asset at `import`.
+
 ## 7. Deploy (manual, first time)
 
 ```

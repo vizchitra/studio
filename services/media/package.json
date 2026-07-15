@@ -7,7 +7,9 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate-fixtures": "node scripts/generate-fixtures.ts",
+    "seed-fixtures": "node scripts/seed-fixtures.ts"
   },
   "dependencies": {
     "@cf-wasm/photon": "^0.3.7",
