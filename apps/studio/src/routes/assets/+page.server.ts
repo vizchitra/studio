@@ -1,7 +1,8 @@
 import { error, fail, redirect } from "@sveltejs/kit";
-import { ulid, canReview } from "@studio/shared";
+import { ulid, canReview, canReprocess, MEDIA_PIPELINE_STEPS } from "@studio/shared";
 import type { Actions, PageServerLoad } from "./$types";
 import type { StudioAccessRole } from "@studio/domain";
+import type { MediaPipelineStep } from "@studio/shared";
 
 interface AssetRow {
   id: string;
@@ -16,7 +17,7 @@ interface AssetRow {
   quality_flags_json: string | null;
 }
 
-export const load: PageServerLoad = async ({ platform }) => {
+export const load: PageServerLoad = async ({ platform, locals }) => {
   const db = platform?.env.DB;
   if (!db) error(500, "DB binding not available");
 
@@ -63,7 +64,14 @@ export const load: PageServerLoad = async ({ platform }) => {
     return { ...row, exifSummary, qualityFlags };
   });
 
-  return { assets };
+  let reprocessEnabled = false;
+  if (locals.user) {
+    const personId = await getOrCreatePersonId(db, locals.user.email);
+    const role = await getEffectiveRole(db, personId, "studio", "global");
+    reprocessEnabled = canReprocess(role);
+  }
+
+  return { assets, reprocessEnabled, pipelineSteps: MEDIA_PIPELINE_STEPS };
 };
 
 // asset.updated_by is a FK to person.id, not a raw email — same resolution
@@ -154,6 +162,34 @@ export const actions: Actions = {
     const role = await getEffectiveRole(db, personId, "asset", assetId);
     if (!canReview(role)) return fail(403, { error: "Insufficient permissions to reject" });
     await setStatus(db, assetId, "archived", personId);
+    redirect(303, "/assets");
+  },
+
+  // Re-enqueues an existing asset at a chosen pipeline step (closes #32) —
+  // for assets stuck with stale/empty results because they were processed
+  // before a step's real implementation shipped. runPipelineStep already
+  // enqueues the next step on success, so resuming at step X naturally
+  // cascades through everything after it; no new pipeline logic needed.
+  // Gated by canReprocess (administrator only) — this bypasses whatever a
+  // step already recorded, so it isn't available to reviewers/editors.
+  reprocess: async ({ request, platform, locals }) => {
+    if (!locals.user) return fail(401, { error: "Not signed in" });
+    const form = await request.formData();
+    const assetId = form.get("assetId");
+    const step = form.get("step");
+    if (typeof assetId !== "string") return fail(400, { error: "Missing assetId" });
+    if (typeof step !== "string" || !MEDIA_PIPELINE_STEPS.includes(step as MediaPipelineStep)) {
+      return fail(400, { error: "Missing or invalid step" });
+    }
+
+    const db = platform?.env.DB;
+    const queue = platform?.env.MEDIA_QUEUE;
+    if (!db || !queue) return fail(500, { error: "DB or queue binding not available" });
+    const personId = await getOrCreatePersonId(db, locals.user.email);
+    const role = await getEffectiveRole(db, personId, "studio", "global");
+    if (!canReprocess(role)) return fail(403, { error: "Insufficient permissions to reprocess" });
+
+    await queue.send({ assetId, step: step as MediaPipelineStep });
     redirect(303, "/assets");
   },
 };

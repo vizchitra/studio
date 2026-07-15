@@ -6,6 +6,15 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Admin "Reprocess" action in the `/assets` review UI (closes #32): resumes
+  an existing asset at a chosen pipeline step by re-sending
+  `{ assetId, step }` to `MEDIA_QUEUE` — `runPipelineStep` already enqueues
+  the next step on success, so resuming at step X cascades forward through
+  everything after it with no new pipeline logic. Gated by `canReprocess`
+  (administrator only); only rendered for users who have it. Fixes the
+  4 assets stuck with `perceptual_hash: null` from before
+  `duplicate_detection`'s real implementation shipped, and generalizes to
+  any future stub -> real-implementation gap.
 - Enforce `person`'s Studio access role before upload (`services/media`
   `POST /assets`) and approve/reject (`apps/studio` `/assets` review UI)
   (closes #28). Introduces `StudioAccessRole` (administrator/editor/
