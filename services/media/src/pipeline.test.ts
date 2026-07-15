@@ -248,7 +248,7 @@ describe("preview_generation step", () => {
 
     expect(versions.results.map((v) => v.kind).sort()).toEqual(["thumbnail", "web"]);
     for (const v of versions.results) {
-      expect(v.mime_type).toBe("image/webp");
+      expect(v.mime_type).toBe("image/jpeg");
       const object = await ctx.bucket.get(v.r2_key);
       expect(object).not.toBeNull();
       // 800x600 source: web (max 1600) stays at original size, thumbnail
