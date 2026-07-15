@@ -531,10 +531,138 @@ async function searchIndexingStep(ctx: PipelineContext) {
   return { done: true };
 }
 
-async function publishStep(_ctx: PipelineContext) {
-  // TODO: only runs if Asset.status === 'approved'. Creates immutable
-  // Publication row + derivative AssetVersions, pushes to media.vizchitra.com.
-  return { done: true };
+// 'publish' is the last step in the canonical pipeline, so every asset
+// reaches it automatically on upload while still 'draft' — this guard is
+// what makes that a no-op skip instead of a premature publish. The review
+// UI's approve action re-sends { assetId, step: 'publish' } to actually
+// trigger publishing once an editor approves (apps/studio's
+// src/routes/assets/+page.server.ts).
+const SOCIAL_DERIVATIVE = { maxDimension: 1200, quality: 85 };
+
+async function publishStep(ctx: PipelineContext) {
+  const asset = await ctx.db
+    .prepare(`SELECT status FROM asset WHERE id = ?`)
+    .bind(ctx.assetId)
+    .first<{ status: string }>();
+  if (!asset) {
+    throw new Error(`No asset found for ${ctx.assetId}`);
+  }
+  if (asset.status !== "approved") {
+    return { skipped: true, reason: `asset status is '${asset.status}', not 'approved'` };
+  }
+
+  const original = await ctx.db
+    .prepare(
+      `SELECT r2_key, mime_type, size_bytes FROM asset_version WHERE asset_id = ? AND kind = 'original'`,
+    )
+    .bind(ctx.assetId)
+    .first<{ r2_key: string; mime_type: string; size_bytes: number }>();
+  if (!original) {
+    throw new Error(`No 'original' asset_version found for asset ${ctx.assetId}`);
+  }
+
+  // Publish whatever we have a public-suitable derivative for; fall back to
+  // the original itself for non-image assets (PDFs, etc.) where there's no
+  // "social crop" concept — publishing is still meaningful for those, it's
+  // just the original bytes.
+  let publishedR2Key = original.r2_key;
+  if (original.mime_type.startsWith("image/") && original.size_bytes <= MAX_SOURCE_BYTES) {
+    const existingSocial = await ctx.db
+      .prepare(`SELECT r2_key FROM asset_version WHERE asset_id = ? AND kind = 'social'`)
+      .bind(ctx.assetId)
+      .first<{ r2_key: string }>();
+
+    if (existingSocial) {
+      publishedR2Key = existingSocial.r2_key;
+    } else {
+      const object = await ctx.bucket.get(original.r2_key);
+      if (!object) {
+        throw new Error(`R2 object ${original.r2_key} not found for asset ${ctx.assetId}`);
+      }
+      const sourceBytes = new Uint8Array(await object.arrayBuffer());
+
+      try {
+        const sourceImage = PhotonImage.new_from_byteslice(sourceBytes);
+        try {
+          const longestEdge = Math.max(sourceImage.get_width(), sourceImage.get_height());
+          const scale = Math.min(1, SOCIAL_DERIVATIVE.maxDimension / longestEdge);
+          const width = Math.round(sourceImage.get_width() * scale);
+          const height = Math.round(sourceImage.get_height() * scale);
+
+          const resized = resize(sourceImage, width, height, SamplingFilter.Lanczos3);
+          let outputBytes: Uint8Array;
+          try {
+            outputBytes = resized.get_bytes_jpeg(SOCIAL_DERIVATIVE.quality);
+          } finally {
+            resized.free();
+          }
+
+          const r2Key = `derivatives/${ctx.assetId}/social.jpg`;
+          const checksum = await sha256Hex(outputBytes as Uint8Array<ArrayBuffer>);
+          const now = new Date().toISOString();
+
+          await ctx.bucket.put(r2Key, outputBytes, {
+            httpMetadata: { contentType: "image/jpeg" },
+          });
+          await ctx.db
+            .prepare(
+              `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, width, height, checksum, created_at)
+               VALUES (?, ?, 'social', 'image/jpeg', ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(ulid(), ctx.assetId, r2Key, outputBytes.byteLength, width, height, checksum, now)
+            .run();
+
+          publishedR2Key = r2Key;
+        } finally {
+          sourceImage.free();
+        }
+      } catch {
+        // Corrupt/undecodable image — publish the original bytes instead of
+        // failing the whole step, same treatment as preview_generation.
+      }
+    }
+  }
+
+  // media.vizchitra.com itself isn't stood up yet (services/publishing is
+  // still Roadmap Phase 2, not started) — this records the URL the asset
+  // will be served from once it is, per architecture/Media Architecture.md,
+  // Publishing/Delivery sections.
+  const publishedUrl = `https://media.vizchitra.com/${publishedR2Key}`;
+
+  // Immutable: never mutate a publication row once written. Idempotent on
+  // retry by checking for an existing publication pointing at the exact
+  // same derivative rather than blocking re-publish outright — a genuinely
+  // new derivative (e.g. after a future edit workflow) still gets a new,
+  // incremented version.
+  const existingPublication = await ctx.db
+    .prepare(
+      `SELECT id FROM publication WHERE entity_type = 'asset' AND entity_id = ? AND published_url = ?`,
+    )
+    .bind(ctx.assetId, publishedUrl)
+    .first<{ id: string }>();
+  if (existingPublication) {
+    return { done: true, publicationId: existingPublication.id, publishedUrl, reused: true };
+  }
+
+  const priorCount = await ctx.db
+    .prepare(
+      `SELECT COUNT(*) as count FROM publication WHERE entity_type = 'asset' AND entity_id = ?`,
+    )
+    .bind(ctx.assetId)
+    .first<{ count: number }>();
+  const version = String((priorCount?.count ?? 0) + 1);
+  const publicationId = ulid();
+  const publishedAt = new Date().toISOString();
+
+  await ctx.db
+    .prepare(
+      `INSERT INTO publication (id, entity_id, entity_type, version, published_url, published_at)
+       VALUES (?, ?, 'asset', ?, ?, ?)`,
+    )
+    .bind(publicationId, ctx.assetId, version, publishedUrl, publishedAt)
+    .run();
+
+  return { done: true, publicationId, publishedUrl };
 }
 
 export const PIPELINE: Record<MediaPipelineStep, PipelineStepFn> = {

@@ -658,3 +658,106 @@ describe("search_indexing step", () => {
     expect(count?.count).toBe(1);
   });
 });
+
+describe("publish step", () => {
+  let ctx: PipelineContext;
+
+  async function seedOriginal(assetId: string, png: Uint8Array) {
+    const versionId = `test-version-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const r2Key = `originals/${assetId}/test.png`;
+    await env.MEDIA_BUCKET.put(r2Key, png, { httpMetadata: { contentType: "image/png" } });
+    await env.DB.prepare(
+      `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
+       VALUES (?, ?, 'original', 'image/png', ?, ?, 'deadbeef', ?)`,
+    )
+      .bind(versionId, assetId, r2Key, png.byteLength, now)
+      .run();
+  }
+
+  async function seedAsset(status: string) {
+    const assetId = `test-asset-${crypto.randomUUID()}`;
+    const personId = `test-person-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+      ).bind(personId, "Test Person", now, now),
+      env.DB.prepare(
+        `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, 'photo', ?, ?, ?, ?, ?)`,
+      ).bind(assetId, status, "test.png", now, now, personId, personId),
+    ]);
+    return assetId;
+  }
+
+  it("skips (does not publish) an asset that isn't approved", async () => {
+    const assetId = await seedAsset("draft");
+    ctx = { assetId, db: env.DB, bucket: env.MEDIA_BUCKET, queue: env.MEDIA_QUEUE };
+    await seedOriginal(assetId, makeTestPng(64, 64, 10));
+
+    await runPipelineStep("publish", ctx);
+
+    const run = await ctx.db
+      .prepare(
+        `SELECT status, output FROM asset_pipeline_run WHERE asset_id = ? AND step = 'publish'`,
+      )
+      .bind(assetId)
+      .first<{ status: string; output: string }>();
+    expect(run?.status).toBe("done");
+    expect(JSON.parse(run?.output ?? "{}")).toMatchObject({ skipped: true });
+
+    const publication = await ctx.db
+      .prepare(`SELECT id FROM publication WHERE entity_type = 'asset' AND entity_id = ?`)
+      .bind(assetId)
+      .first();
+    expect(publication).toBeNull();
+  });
+
+  it("publishes an approved asset: creates a 'social' derivative and an immutable publication row", async () => {
+    const assetId = await seedAsset("approved");
+    ctx = { assetId, db: env.DB, bucket: env.MEDIA_BUCKET, queue: env.MEDIA_QUEUE };
+    await seedOriginal(assetId, makeTestPng(800, 600, 11));
+
+    await runPipelineStep("publish", ctx);
+
+    const social = await ctx.db
+      .prepare(`SELECT r2_key FROM asset_version WHERE asset_id = ? AND kind = 'social'`)
+      .bind(assetId)
+      .first<{ r2_key: string }>();
+    expect(social).not.toBeNull();
+    expect(await ctx.bucket.get(social!.r2_key)).not.toBeNull();
+
+    const publication = await ctx.db
+      .prepare(
+        `SELECT version, published_url FROM publication WHERE entity_type = 'asset' AND entity_id = ?`,
+      )
+      .bind(assetId)
+      .first<{ version: string; published_url: string }>();
+    expect(publication?.version).toBe("1");
+    expect(publication?.published_url).toContain(social!.r2_key);
+  });
+
+  it("is idempotent on retry: does not duplicate the social derivative or the publication row", async () => {
+    const assetId = await seedAsset("approved");
+    ctx = { assetId, db: env.DB, bucket: env.MEDIA_BUCKET, queue: env.MEDIA_QUEUE };
+    await seedOriginal(assetId, makeTestPng(800, 600, 12));
+
+    await runPipelineStep("publish", ctx);
+    await runPipelineStep("publish", ctx);
+
+    const versionCount = await ctx.db
+      .prepare(`SELECT COUNT(*) as count FROM asset_version WHERE asset_id = ? AND kind = 'social'`)
+      .bind(assetId)
+      .first<{ count: number }>();
+    expect(versionCount?.count).toBe(1);
+
+    const publicationCount = await ctx.db
+      .prepare(
+        `SELECT COUNT(*) as count FROM publication WHERE entity_type = 'asset' AND entity_id = ?`,
+      )
+      .bind(assetId)
+      .first<{ count: number }>();
+    expect(publicationCount?.count).toBe(1);
+  });
+});

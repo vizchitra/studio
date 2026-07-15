@@ -6,6 +6,22 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- `publish` pipeline step (closes #30): guarded on `asset.status ===
+  'approved'` — every asset already reaches this step automatically on
+  upload as part of the normal pipeline cascade while still `draft`, so
+  this guard is what makes that a no-op instead of a premature publish.
+  The `/assets` review UI's approve action now re-sends
+  `{ assetId, step: 'publish' }` to actually trigger it once an editor
+  approves. Generates a `social` derivative `AssetVersion` (1200px longest
+  edge, JPEG quality 85 — same lossy-JPEG-over-lossless-WebP reasoning as
+  `preview_generation`) and writes an immutable `publication` row
+  (`entity_type`/`entity_id`/`version`/`published_url`/`published_at`),
+  never mutated once written; idempotent on retry by checking for an
+  existing publication pointing at the same derivative rather than
+  blocking re-publish outright. `published_url` points at
+  `media.vizchitra.com`, which isn't stood up yet (`services/publishing`
+  is still Roadmap Phase 2) — this records the URL the asset will be
+  served from once it is.
 - `search_indexing` pipeline step (closes #29): upserts a `search_index`
   row per asset (title, kind + EXIF Make/Model/DateTimeOriginal + quality
   flags in `body`, empty `tags` for now — the only tag source would be

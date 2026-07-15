@@ -139,11 +139,16 @@ export const actions: Actions = {
     if (typeof assetId !== "string") return fail(400, { error: "Missing assetId" });
 
     const db = platform?.env.DB;
-    if (!db) return fail(500, { error: "DB binding not available" });
+    const queue = platform?.env.MEDIA_QUEUE;
+    if (!db || !queue) return fail(500, { error: "DB or queue binding not available" });
     const personId = await getOrCreatePersonId(db, locals.user.email);
     const role = await getEffectiveRole(db, personId, "asset", assetId);
     if (!canReview(role)) return fail(403, { error: "Insufficient permissions to approve" });
     await setStatus(db, assetId, "approved", personId);
+    // The pipeline already ran 'publish' once automatically on upload, but
+    // skipped it (asset was still 'draft') — re-send it now that the status
+    // check will pass, see services/media/src/pipeline.ts publishStep.
+    await queue.send({ assetId, step: "publish" });
     redirect(303, "/assets");
   },
 
