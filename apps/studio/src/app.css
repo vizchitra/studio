@@ -380,6 +380,23 @@ button:focus:not(:focus-visible) {
   padding-inline: 1rem;
 }
 
+/* For data grids that need real width (a pipeline-step table, not prose) —
+   .content-container's 48rem prose measure squeezes them into pointless
+   horizontal scrolling instead of using the page. --width-content is the
+   wide variant UI_PRINCIPLES.md's Container section already calls for;
+   this is that variant, ahead of the full Container extraction. */
+.wide-container {
+  max-width: var(--width-content);
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+
+@media (min-width: 768px) {
+  .wide-container {
+    padding-inline: 2rem;
+  }
+}
+
 .content-notice {
   margin-bottom: 2rem;
   border-radius: 0.5rem;

@@ -37,7 +37,7 @@
   }
 </script>
 
-<div class="content-container">
+<div class="wide-container">
   <h1 class="font-display">Pipeline Validation</h1>
   <p class="content-text">
     One row per fixture (<a href="/assets">seeded via services/media/scripts/seed-fixtures.ts</a>),
