@@ -104,6 +104,39 @@ Attach to any core entity via entity_id + entity_type.
 -   Permission
 -   SearchIndex
 
+### Permission
+
+Grants a `StudioAccessRole` (administrator/editor/reviewer/photographer/
+volunteer/viewer — see [Studio Architecture RFC v1](Studio%20Architecture%20RFC%20v1.md),
+Permissions section for the role list and semantics) to a Person, either as
+their baseline role or as an entity-level override.
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| id | UUID/ULID | no | |
+| entity_id | Entity id or "global" | no | "global" for the baseline row |
+| entity_type | string (enum) or "studio" | no | "studio" for the baseline row |
+| person_id | Person id (FK) | no | |
+| role | string (enum) | no | StudioAccessRole |
+| created_at | timestamp | no | |
+
+Baseline (non-override) grants use the convention `entity_type = "studio"`,
+`entity_id = "global"` rather than a separate column or table — the same
+row shape holds both the base role-based model and its entity-level
+overrides, per the RFC's "role-based with entity-level overrides" model.
+Effective role for a specific entity = the override for that entity if one
+exists, else the baseline row, else no permission (deny by default).
+
+Example — an administrator's baseline grant:
+
+| id | entity_id | entity_type | person_id | role | created_at |
+|---|---|---|---|---|---|
+| 01J... | global | studio | 01H... (Person id) | administrator | 2026-01-01T00:00:00Z |
+
+An entity-level override (e.g. a Volunteer granted Editor rights on one
+specific Asset) would instead have `entity_type = "asset"`, `entity_id =
+<asset id>`, `role = "editor"`.
+
 ## Design Rules
 
 -   Never duplicate entities across modules.

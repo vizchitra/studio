@@ -1,6 +1,7 @@
 import { error, fail, redirect } from "@sveltejs/kit";
-import { ulid } from "@studio/shared";
+import { ulid, canReview } from "@studio/shared";
 import type { Actions, PageServerLoad } from "./$types";
+import type { StudioAccessRole } from "@studio/domain";
 
 interface AssetRow {
   id: string;
@@ -83,6 +84,33 @@ async function getOrCreatePersonId(db: D1Database, email: string): Promise<strin
   return id;
 }
 
+// Effective StudioAccessRole for a specific entity: an entity-level override
+// (a `permission` row scoped to that entity) takes precedence over the
+// baseline grant (entity_type = 'studio', entity_id = 'global') — see
+// architecture/Studio Data Model.md, Permission section.
+async function getEffectiveRole(
+  db: D1Database,
+  personId: string,
+  entityType: string,
+  entityId: string,
+): Promise<StudioAccessRole | null> {
+  const override = await db
+    .prepare(
+      `SELECT role FROM permission WHERE entity_type = ? AND entity_id = ? AND person_id = ?`,
+    )
+    .bind(entityType, entityId, personId)
+    .first<{ role: StudioAccessRole }>();
+  if (override) return override.role;
+
+  const baseline = await db
+    .prepare(
+      `SELECT role FROM permission WHERE entity_type = 'studio' AND entity_id = 'global' AND person_id = ?`,
+    )
+    .bind(personId)
+    .first<{ role: StudioAccessRole }>();
+  return baseline?.role ?? null;
+}
+
 async function setStatus(
   db: D1Database,
   assetId: string,
@@ -105,6 +133,8 @@ export const actions: Actions = {
     const db = platform?.env.DB;
     if (!db) return fail(500, { error: "DB binding not available" });
     const personId = await getOrCreatePersonId(db, locals.user.email);
+    const role = await getEffectiveRole(db, personId, "asset", assetId);
+    if (!canReview(role)) return fail(403, { error: "Insufficient permissions to approve" });
     await setStatus(db, assetId, "approved", personId);
     redirect(303, "/assets");
   },
@@ -121,6 +151,8 @@ export const actions: Actions = {
     const db = platform?.env.DB;
     if (!db) return fail(500, { error: "DB binding not available" });
     const personId = await getOrCreatePersonId(db, locals.user.email);
+    const role = await getEffectiveRole(db, personId, "asset", assetId);
+    if (!canReview(role)) return fail(403, { error: "Insufficient permissions to reject" });
     await setStatus(db, assetId, "archived", personId);
     redirect(303, "/assets");
   },

@@ -1,11 +1,16 @@
 <script lang="ts">
-  import type { PageData } from "./$types";
+  import type { ActionData, PageData } from "./$types";
   export let data: PageData;
+  export let form: ActionData;
 </script>
 
 <div class="content-container">
   <h1 class="font-display">Assets</h1>
   <p class="content-text"><a href="/">&larr; Back to upload</a></p>
+
+  {#if form?.error}
+    <p class="notice-error">{form.error}</p>
+  {/if}
 
   {#if data.assets.length === 0}
     <p class="content-text">No assets uploaded yet.</p>
