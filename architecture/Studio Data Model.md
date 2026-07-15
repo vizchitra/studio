@@ -47,7 +47,11 @@ Articles, guides, pages, newsletters. References Assets.
 ### Asset
 
 Stable identity for any media. References Event, Session, People and
-Collections.
+Collections. `perceptual_hash` (string, nullable) is a 64-bit dHash of the
+`original` AssetVersion's image, computed by the duplicate_detection
+pipeline step and compared across assets via Hamming distance to flag
+likely duplicates for editorial review — null for non-image assets or
+assets predating this step.
 
 ### AssetVersion
 
