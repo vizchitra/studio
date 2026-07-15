@@ -70,6 +70,7 @@ export interface Asset extends EntityBase {
   type: "asset";
   kind: "photo" | "video" | "audio" | "pdf" | "logo" | "transcript" | "brand";
   title?: string;
+  perceptual_hash?: string;
 }
 
 export type AssetVersionKind = "original" | "review" | "edited" | "web" | "social" | "thumbnail";

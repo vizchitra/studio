@@ -1,5 +1,5 @@
 import { parse as parseExif } from "exifr";
-import { PhotonImage, SamplingFilter, resize } from "@cf-wasm/photon/workerd";
+import { PhotonImage, SamplingFilter, grayscale, resize } from "@cf-wasm/photon/workerd";
 import { ulid, sha256Hex, MEDIA_PIPELINE_STEPS, type MediaPipelineStep } from "@studio/shared";
 
 // Keep extraction to plain, JSON-serializable metadata (timestamps, camera
@@ -211,9 +211,140 @@ async function faceClusteringStep(_ctx: PipelineContext) {
   return { done: true };
 }
 
-async function duplicateDetectionStep(_ctx: PipelineContext) {
-  // TODO: perceptual hash against existing Assets in the same Event.
-  return { done: true };
+// 64-bit difference hash (dHash): resize to 9x8 grayscale, then for each of
+// the 8 rows compare each of the 9 pixels to its right neighbor — 8
+// comparisons per row * 8 rows = 64 bits. Robust to resizing/compression,
+// cheap to compute, no extra dependency beyond Photon (already in use for
+// preview_generation).
+function computeDHash(image: PhotonImage): string {
+  const resized = resize(image, 9, 8, SamplingFilter.Nearest);
+  try {
+    grayscale(resized);
+    const pixels = resized.get_raw_pixels(); // RGBA, grayscale so R=G=B
+    let bits = "";
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const left = pixels[(row * 9 + col) * 4];
+        const right = pixels[(row * 9 + col + 1) * 4];
+        bits += left < right ? "1" : "0";
+      }
+    }
+    let hex = "";
+    for (let i = 0; i < 64; i += 4) {
+      hex += Number.parseInt(bits.slice(i, i + 4), 2).toString(16);
+    }
+    return hex;
+  } finally {
+    resized.free();
+  }
+}
+
+function hammingDistance(hexA: string, hexB: string): number {
+  if (hexA.length !== hexB.length) return Number.MAX_SAFE_INTEGER;
+  let distance = 0;
+  for (let i = 0; i < hexA.length; i++) {
+    let x = Number.parseInt(hexA[i], 16) ^ Number.parseInt(hexB[i], 16);
+    while (x) {
+      distance += x & 1;
+      x >>= 1;
+    }
+  }
+  return distance;
+}
+
+// Heuristic: <=10 out of 64 bits differing reliably means "same or
+// near-identical image" for dHash in practice (re-encodes, minor crops,
+// thumbnail-vs-original). Tune once real usage shows false positives/negatives.
+const DUPLICATE_HAMMING_THRESHOLD = 10;
+
+async function duplicateDetectionStep(ctx: PipelineContext) {
+  const version = await ctx.db
+    .prepare(
+      `SELECT id, r2_key, mime_type, size_bytes FROM asset_version WHERE asset_id = ? AND kind = 'original'`,
+    )
+    .bind(ctx.assetId)
+    .first<{ id: string; r2_key: string; mime_type: string; size_bytes: number }>();
+
+  if (!version) {
+    throw new Error(`No 'original' asset_version found for asset ${ctx.assetId}`);
+  }
+
+  if (!version.mime_type.startsWith("image/")) {
+    return { skipped: true, reason: `mime_type ${version.mime_type} is not an image` };
+  }
+
+  if (version.size_bytes > MAX_SOURCE_BYTES) {
+    return {
+      skipped: true,
+      reason: `original is ${version.size_bytes} bytes, over the ${MAX_SOURCE_BYTES} processing cap`,
+    };
+  }
+
+  const object = await ctx.bucket.get(version.r2_key);
+  if (!object) {
+    throw new Error(`R2 object ${version.r2_key} not found for asset ${ctx.assetId}`);
+  }
+  const sourceBytes = new Uint8Array(await object.arrayBuffer());
+
+  let sourceImage: PhotonImage;
+  try {
+    sourceImage = PhotonImage.new_from_byteslice(sourceBytes);
+  } catch (err) {
+    return { skipped: true, reason: `image decode failed: ${String(err)}` };
+  }
+
+  let hash: string;
+  try {
+    hash = computeDHash(sourceImage);
+  } finally {
+    sourceImage.free();
+  }
+
+  await ctx.db
+    .prepare(`UPDATE asset SET perceptual_hash = ? WHERE id = ?`)
+    .bind(hash, ctx.assetId)
+    .run();
+
+  // Scoped to all assets, not just the same Event — session_inference (which
+  // would associate an asset with an Event) doesn't exist yet, so there's no
+  // Event to scope to. Revisit once it does.
+  const candidates = await ctx.db
+    .prepare(`SELECT id, perceptual_hash FROM asset WHERE perceptual_hash IS NOT NULL AND id != ?`)
+    .bind(ctx.assetId)
+    .all<{ id: string; perceptual_hash: string }>();
+
+  const duplicates: { assetId: string; distance: number }[] = [];
+  const now = new Date().toISOString();
+  for (const candidate of candidates.results) {
+    const distance = hammingDistance(hash, candidate.perceptual_hash);
+    if (distance > DUPLICATE_HAMMING_THRESHOLD) continue;
+
+    // Idempotent: don't re-flag a pair a previous (partial) attempt already
+    // flagged, in either direction.
+    const existing = await ctx.db
+      .prepare(
+        `SELECT id FROM relationship
+         WHERE kind = 'possible_duplicate_of'
+           AND ((from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?))`,
+      )
+      .bind(ctx.assetId, candidate.id, candidate.id, ctx.assetId)
+      .first<{ id: string }>();
+    if (existing) {
+      duplicates.push({ assetId: candidate.id, distance });
+      continue;
+    }
+
+    await ctx.db
+      .prepare(
+        `INSERT INTO relationship (id, from_id, from_type, to_id, to_type, kind, created_at)
+         VALUES (?, ?, 'asset', ?, 'asset', 'possible_duplicate_of', ?)`,
+      )
+      .bind(ulid(), ctx.assetId, candidate.id, now)
+      .run();
+    duplicates.push({ assetId: candidate.id, distance });
+  }
+
+  return { done: true, hash, duplicates };
 }
 
 async function ocrStep(_ctx: PipelineContext) {

@@ -3,13 +3,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PhotonImage } from "@cf-wasm/photon/workerd";
 import { PIPELINE, runPipelineStep, type PipelineContext } from "./pipeline";
 
-function makeTestPng(width: number, height: number): Uint8Array {
+// D1 storage isn't reset between `it()` blocks in the same file (only
+// between test files). dHash only encodes *relative* brightness between
+// neighboring pixels, so a flat single-color image always hashes to
+// "0000000000000000" regardless of which color it is — a fixed-color image
+// would spuriously "match" every other flat-color image across every test
+// in this file. `seed` drives a per-pixel gradient so images with different
+// seeds produce genuinely different hashes, while the same seed always
+// reproduces the identical image (for the "these are duplicates" case).
+function makeTestPng(width: number, height: number, seed = 0): Uint8Array {
   const pixels = new Uint8Array(width * height * 4);
-  for (let i = 0; i < pixels.length; i += 4) {
-    pixels[i] = 200; // R
-    pixels[i + 1] = 80; // G
-    pixels[i + 2] = 40; // B
-    pixels[i + 3] = 255; // A
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const value = (x * 47 + y * 91 + seed * 137) % 256;
+      pixels[i] = value;
+      pixels[i + 1] = value;
+      pixels[i + 2] = value;
+      pixels[i + 3] = 255; // A
+    }
   }
   const image = new PhotonImage(pixels, width, height);
   try {
@@ -272,5 +284,129 @@ describe("preview_generation step", () => {
       .bind(ctx.assetId)
       .first<{ count: number }>();
     expect(afterRetry?.count).toBe(2);
+  });
+});
+
+describe("duplicate_detection step", () => {
+  let ctx: PipelineContext;
+  let personId: string;
+
+  async function seedOriginal(assetId: string, png: Uint8Array) {
+    const versionId = `test-version-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const r2Key = `originals/${assetId}/test.png`;
+    await env.MEDIA_BUCKET.put(r2Key, png, { httpMetadata: { contentType: "image/png" } });
+    await env.DB.prepare(
+      `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
+       VALUES (?, ?, 'original', 'image/png', ?, ?, 'deadbeef', ?)`,
+    )
+      .bind(versionId, assetId, r2Key, png.byteLength, now)
+      .run();
+  }
+
+  beforeEach(async () => {
+    const assetId = `test-asset-${crypto.randomUUID()}`;
+    ctx = {
+      assetId,
+      db: env.DB,
+      bucket: env.MEDIA_BUCKET,
+      queue: env.MEDIA_QUEUE,
+    };
+
+    personId = `test-person-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await ctx.db.batch([
+      ctx.db
+        .prepare(`INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+        .bind(personId, "Test Person", now, now),
+      ctx.db
+        .prepare(
+          `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
+           VALUES (?, 'draft', 'photo', ?, ?, ?, ?, ?)`,
+        )
+        .bind(assetId, "test.png", now, now, personId, personId),
+    ]);
+  });
+
+  it("throws when there is no 'original' asset_version row (retryable)", async () => {
+    await expect(runPipelineStep("duplicate_detection", ctx)).rejects.toThrow(
+      "No 'original' asset_version found",
+    );
+  });
+
+  it("skips non-image mime types", async () => {
+    const versionId = `test-version-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await ctx.db
+      .prepare(
+        `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
+         VALUES (?, ?, 'original', 'application/pdf', ?, 0, 'deadbeef', ?)`,
+      )
+      .bind(versionId, ctx.assetId, `originals/${ctx.assetId}/doc.pdf`, now)
+      .run();
+
+    await runPipelineStep("duplicate_detection", ctx);
+
+    const run = await ctx.db
+      .prepare(
+        `SELECT status, output FROM asset_pipeline_run WHERE asset_id = ? AND step = 'duplicate_detection'`,
+      )
+      .bind(ctx.assetId)
+      .first<{ status: string; output: string }>();
+    expect(run?.status).toBe("done");
+    expect(JSON.parse(run?.output ?? "{}")).toMatchObject({ skipped: true });
+  });
+
+  it("computes and stores a perceptual hash even with no other assets to compare", async () => {
+    await seedOriginal(ctx.assetId, makeTestPng(64, 64, 1));
+
+    await runPipelineStep("duplicate_detection", ctx);
+
+    const asset = await ctx.db
+      .prepare(`SELECT perceptual_hash FROM asset WHERE id = ?`)
+      .bind(ctx.assetId)
+      .first<{ perceptual_hash: string | null }>();
+    expect(asset?.perceptual_hash).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("flags a near-identical existing asset as a possible duplicate, and is idempotent on retry", async () => {
+    const png = makeTestPng(64, 64, 2);
+
+    const otherAssetId = `test-asset-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await ctx.db
+      .prepare(
+        `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
+         VALUES (?, 'draft', 'photo', ?, ?, ?, ?, ?)`,
+      )
+      .bind(otherAssetId, "other.png", now, now, personId, personId)
+      .run();
+    await seedOriginal(otherAssetId, png);
+    await runPipelineStep("duplicate_detection", { ...ctx, assetId: otherAssetId });
+
+    await seedOriginal(ctx.assetId, png);
+    await runPipelineStep("duplicate_detection", ctx);
+
+    const relationships = await ctx.db
+      .prepare(
+        `SELECT from_id, to_id FROM relationship
+         WHERE kind = 'possible_duplicate_of' AND (from_id = ? OR to_id = ?)`,
+      )
+      .bind(ctx.assetId, ctx.assetId)
+      .all<{ from_id: string; to_id: string }>();
+    expect(relationships.results).toHaveLength(1);
+    expect([relationships.results[0].from_id, relationships.results[0].to_id]).toContain(
+      otherAssetId,
+    );
+
+    await runPipelineStep("duplicate_detection", ctx);
+    const afterRetry = await ctx.db
+      .prepare(
+        `SELECT COUNT(*) as count FROM relationship
+         WHERE kind = 'possible_duplicate_of' AND (from_id = ? OR to_id = ?)`,
+      )
+      .bind(ctx.assetId, ctx.assetId)
+      .first<{ count: number }>();
+    expect(afterRetry?.count).toBe(1);
   });
 });
