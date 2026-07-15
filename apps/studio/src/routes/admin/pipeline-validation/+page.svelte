@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Badge, Button, Container, Notice, Table } from "$lib/components";
   import type { ActionData, PageData } from "./$types";
   // Svelte's `export let` is assigned by the component instantiation; this
   // rule only sees the declaration, and only flags it because `data` is
@@ -37,7 +38,7 @@
   }
 </script>
 
-<div class="wide-container">
+<Container wide>
   <h1 class="font-display">Pipeline Validation</h1>
   <p class="content-text">
     One row per fixture (<a href="/assets">seeded via services/media/scripts/seed-fixtures.ts</a>),
@@ -46,7 +47,7 @@
   </p>
 
   {#if form?.error}
-    <p class="notice-error">{form.error}</p>
+    <Notice kind="error">{form.error}</Notice>
   {/if}
 
   {#if data.fixtures.length === 0}
@@ -56,8 +57,8 @@
     </p>
   {/if}
 
-  <div class="grid-scroll">
-    <table class="validation-grid">
+  <div class="validation-grid-wrap">
+    <Table>
       <thead>
         <tr>
           <th>Fixture</th>
@@ -78,7 +79,7 @@
             </td>
             {#each fixture.steps as cell (cell.step)}
               <td class="step-cell">
-                <span class="step-status status-{cell.status}">{cell.status.replace("_", " ")}</span>
+                <Badge kind="pipeline" value={cell.status} />
 
                 {#if cell.status === "failed" && cell.error}
                   <p class="step-error">{cell.error}</p>
@@ -104,42 +105,20 @@
                   <input type="hidden" name="assetId" value={fixture.id} />
                   <input type="hidden" name="step" value={cell.step} />
                   <input type="hidden" name="redirectTo" value="/admin/pipeline-validation" />
-                  <button type="submit">Re-run</button>
+                  <Button variant="tertiary">Re-run</Button>
                 </form>
               </td>
             {/each}
           </tr>
         {/each}
       </tbody>
-    </table>
+    </Table>
   </div>
-</div>
+</Container>
 
 <style>
-  .grid-scroll {
-    overflow-x: auto;
+  .validation-grid-wrap {
     margin-top: var(--space-flow-0);
-  }
-
-  .validation-grid {
-    border-collapse: collapse;
-    width: 100%;
-    font-size: 0.8rem;
-  }
-
-  .validation-grid th,
-  .validation-grid td {
-    border: 1px solid var(--color-border);
-    padding: 0.5rem;
-    vertical-align: top;
-    text-align: left;
-  }
-
-  .validation-grid th {
-    background: var(--color-muted);
-    white-space: nowrap;
-    position: sticky;
-    top: 0;
   }
 
   .fixture-cell {
@@ -157,35 +136,6 @@
 
   .step-cell {
     min-width: 160px;
-  }
-
-  .step-status {
-    display: inline-block;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    padding: 0.1rem 0.4rem;
-    border-radius: 999px;
-    background: var(--color-muted);
-  }
-
-  .status-done {
-    background: var(--color-viz-teal-subtle);
-    color: var(--color-viz-teal-dark);
-  }
-
-  .status-failed {
-    background: #fdd;
-    color: #900;
-  }
-
-  .status-running {
-    background: #ffe8b0;
-    color: #7a5200;
-  }
-
-  .status-not_run {
-    background: var(--color-neutral-100);
-    color: var(--color-text-tertiary);
   }
 
   .step-output,

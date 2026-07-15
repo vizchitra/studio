@@ -1,7 +1,7 @@
 import { error } from "@sveltejs/kit";
 import { MEDIA_PIPELINE_STEPS, canReprocess } from "@studio/shared";
+import { getBaselineRoleByEmail } from "$lib/server/permissions";
 import type { MediaPipelineStep } from "@studio/shared";
-import type { StudioAccessRole } from "@studio/domain";
 import type { PageServerLoad } from "./$types";
 
 // Same email the seed script (services/media/scripts/seed-fixtures.ts) uses
@@ -68,19 +68,8 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
   if (!db) error(500, "DB binding not available");
   if (!locals.user) error(401, "Not signed in");
 
-  const person = await db
-    .prepare(`SELECT id FROM person WHERE email = ?`)
-    .bind(locals.user.email)
-    .first<{ id: string }>();
-  const role = person
-    ? await db
-        .prepare(
-          `SELECT role FROM permission WHERE entity_type = 'studio' AND entity_id = 'global' AND person_id = ?`,
-        )
-        .bind(person.id)
-        .first<{ role: StudioAccessRole }>()
-    : null;
-  if (!canReprocess(role?.role ?? null)) {
+  const role = await getBaselineRoleByEmail(db, locals.user.email);
+  if (!canReprocess(role)) {
     error(403, "Administrators only");
   }
 
