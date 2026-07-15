@@ -1,5 +1,5 @@
 import { parse as parseExif } from "exifr";
-import { PhotonImage, SamplingFilter, grayscale, resize } from "@cf-wasm/photon/workerd";
+import { PhotonImage, SamplingFilter, grayscale, laplace, resize } from "@cf-wasm/photon/workerd";
 import { ulid, sha256Hex, MEDIA_PIPELINE_STEPS, type MediaPipelineStep } from "@studio/shared";
 
 // Keep extraction to plain, JSON-serializable metadata (timestamps, camera
@@ -358,9 +358,122 @@ async function visionTaggingStep(_ctx: PipelineContext) {
   return { done: true };
 }
 
-async function qualityScoringStep(_ctx: PipelineContext) {
-  // TODO: blur/exposure/composition heuristics to help editorial triage.
-  return { done: true };
+// Analysis happens on a small downscale (blur/exposure don't need full
+// resolution, and this keeps CPU/memory bounded regardless of source size).
+const QUALITY_ANALYSIS_MAX_DIMENSION = 512;
+
+// Heuristic thresholds — starting points, not measured against a labeled
+// dataset. Tune once real usage shows false positives/negatives, same as
+// duplicate_detection's Hamming threshold.
+// - Blur: variance of the Laplacian-filtered grayscale image (Pech-Pacheco
+//   et al.) — sharp images have lots of high-contrast edges (high variance),
+//   blurry ones don't.
+// - Exposure: mean grayscale brightness (0-255); far from mid-grey (128) in
+//   either direction suggests under/overexposure.
+const BLUR_VARIANCE_THRESHOLD = 100;
+const UNDEREXPOSED_MEAN_THRESHOLD = 50;
+const OVEREXPOSED_MEAN_THRESHOLD = 205;
+
+function computeQualityMetrics(image: PhotonImage): {
+  meanBrightness: number;
+  blurVariance: number;
+  flags: string[];
+  score: number;
+} {
+  const longestEdge = Math.max(image.get_width(), image.get_height());
+  const scale = Math.min(1, QUALITY_ANALYSIS_MAX_DIMENSION / longestEdge);
+  const width = Math.max(1, Math.round(image.get_width() * scale));
+  const height = Math.max(1, Math.round(image.get_height() * scale));
+
+  const analysisImage = resize(image, width, height, SamplingFilter.Nearest);
+  try {
+    grayscale(analysisImage);
+    const grayPixels = analysisImage.get_raw_pixels(); // RGBA, grayscale so R=G=B
+    const pixelCount = width * height;
+
+    let brightnessSum = 0;
+    for (let i = 0; i < grayPixels.length; i += 4) {
+      brightnessSum += grayPixels[i];
+    }
+    const meanBrightness = brightnessSum / pixelCount;
+
+    laplace(analysisImage); // in-place edge-detection filter
+    const edgePixels = analysisImage.get_raw_pixels();
+    let edgeSum = 0;
+    for (let i = 0; i < edgePixels.length; i += 4) {
+      edgeSum += edgePixels[i];
+    }
+    const edgeMean = edgeSum / pixelCount;
+    let blurVariance = 0;
+    for (let i = 0; i < edgePixels.length; i += 4) {
+      blurVariance += (edgePixels[i] - edgeMean) ** 2;
+    }
+    blurVariance /= pixelCount;
+
+    const flags: string[] = [];
+    if (meanBrightness < UNDEREXPOSED_MEAN_THRESHOLD) flags.push("underexposed");
+    if (meanBrightness > OVEREXPOSED_MEAN_THRESHOLD) flags.push("overexposed");
+    if (blurVariance < BLUR_VARIANCE_THRESHOLD) flags.push("blurry");
+
+    const blurScore = Math.min(100, (blurVariance / (BLUR_VARIANCE_THRESHOLD * 4)) * 100);
+    const exposureScore = Math.max(0, 100 - (Math.abs(meanBrightness - 128) / 128) * 100);
+    const score = Math.round((blurScore + exposureScore) / 2);
+
+    return { meanBrightness, blurVariance, flags, score };
+  } finally {
+    analysisImage.free();
+  }
+}
+
+async function qualityScoringStep(ctx: PipelineContext) {
+  const version = await ctx.db
+    .prepare(
+      `SELECT id, r2_key, mime_type, size_bytes FROM asset_version WHERE asset_id = ? AND kind = 'original'`,
+    )
+    .bind(ctx.assetId)
+    .first<{ id: string; r2_key: string; mime_type: string; size_bytes: number }>();
+
+  if (!version) {
+    throw new Error(`No 'original' asset_version found for asset ${ctx.assetId}`);
+  }
+
+  if (!version.mime_type.startsWith("image/")) {
+    return { skipped: true, reason: `mime_type ${version.mime_type} is not an image` };
+  }
+
+  if (version.size_bytes > MAX_SOURCE_BYTES) {
+    return {
+      skipped: true,
+      reason: `original is ${version.size_bytes} bytes, over the ${MAX_SOURCE_BYTES} processing cap`,
+    };
+  }
+
+  const object = await ctx.bucket.get(version.r2_key);
+  if (!object) {
+    throw new Error(`R2 object ${version.r2_key} not found for asset ${ctx.assetId}`);
+  }
+  const sourceBytes = new Uint8Array(await object.arrayBuffer());
+
+  let sourceImage: PhotonImage;
+  try {
+    sourceImage = PhotonImage.new_from_byteslice(sourceBytes);
+  } catch (err) {
+    return { skipped: true, reason: `image decode failed: ${String(err)}` };
+  }
+
+  let metrics: ReturnType<typeof computeQualityMetrics>;
+  try {
+    metrics = computeQualityMetrics(sourceImage);
+  } finally {
+    sourceImage.free();
+  }
+
+  await ctx.db
+    .prepare(`UPDATE asset SET quality_score = ?, quality_flags = ? WHERE id = ?`)
+    .bind(metrics.score, JSON.stringify(metrics.flags), ctx.assetId)
+    .run();
+
+  return { done: true, ...metrics };
 }
 
 async function searchIndexingStep(_ctx: PipelineContext) {

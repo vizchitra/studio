@@ -51,7 +51,11 @@ Collections. `perceptual_hash` (string, nullable) is a 64-bit dHash of the
 `original` AssetVersion's image, computed by the duplicate_detection
 pipeline step and compared across assets via Hamming distance to flag
 likely duplicates for editorial review — null for non-image assets or
-assets predating this step.
+assets predating this step. `quality_score` (real, nullable, 0-100) and
+`quality_flags` (JSON string array, nullable, e.g. `["blurry",
+"underexposed"]`) are basic blur/exposure heuristics computed by the
+quality_scoring pipeline step for editorial triage — same nullability
+caveats as `perceptual_hash`.
 
 ### AssetVersion
 
