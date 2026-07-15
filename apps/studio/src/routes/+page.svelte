@@ -22,4 +22,6 @@
       Uploaded. Asset ID: {form.assetId}, Version ID: {form.versionId}
     </div>
   {/if}
+
+  <p class="content-text"><a href="/assets">View all assets &rarr;</a></p>
 </div>

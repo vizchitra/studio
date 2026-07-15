@@ -4,6 +4,7 @@
     "moduleResolution": "bundler",
     "target": "ES2020",
     "module": "ESNext",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types"]
   }
 }
