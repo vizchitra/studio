@@ -10,12 +10,16 @@ Steps 1–8 are done for the `vizchitra` Cloudflare account and the
 
 - D1 `studio` (`5755274a-7116-4182-ac3a-0935756b1580`), R2 bucket
   `studio-media`, Queue `studio-media-processing` provisioned;
-  `account_id`/`database_id` filled into both `wrangler.toml` files.
+  `database_id` filled into both `wrangler.toml` files (`account_id` is
+  not — see below).
 - Cloudflare Access: Google OAuth (via Google Cloud project
   `vizchitra-studio`) added as the Zero Trust identity provider; a
   self-hosted Access application gates `studio.vizchitra.com` behind an
   explicit email allowlist. Team name: `vizchitra`.
-- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repo secrets set.
+- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` / `CF_ACCESS_TEAM_DOMAIN`
+  / `CF_ACCESS_AUD` / `MEDIA_SERVICE_URL` repo secrets set (issue #23 —
+  none of these live in either `wrangler.toml` anymore; `deploy.yml`
+  writes the last three to the Workers as secrets after each deploy).
 - `apps/studio` and `services/media` deployed and live.
 - Step 9 (branch protection) is drafted but **not enforced** — see the
   note under that step; the org is on GitHub Free.
@@ -59,7 +63,9 @@ wrangler queues create studio-media-processing
 - `apps/studio/wrangler.toml`
 - `services/media/wrangler.toml`
 
-Also fill in `account_id` in both files (`wrangler whoami` shows it).
+`account_id` doesn't go in either file (issue #23) — Wrangler falls back
+to the `CLOUDFLARE_ACCOUNT_ID` env var (set in CI already; export it
+yourself for local commands — `wrangler whoami` shows the value).
 
 ## 4. Run migrations
 
@@ -93,6 +99,26 @@ Manual step in the Zero Trust dashboard — not scriptable from wrangler.toml:
 
 ## 6. Local dev
 
+`account_id`, `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and
+`MEDIA_SERVICE_URL` are no longer in either `wrangler.toml` (issue #23 —
+not secrets by Cloudflare's model, but removed anyway now that the repo
+may go public). Locally, `wrangler dev` needs these from a `.dev.vars`
+file (gitignored) instead:
+
+```
+# services/media/.dev.vars
+CF_ACCESS_TEAM_DOMAIN=vizchitra.cloudflareaccess.com
+CF_ACCESS_AUD=<the Access application's AUD tag>
+```
+
+```
+# apps/studio/.dev.vars
+MEDIA_SERVICE_URL=https://studio-media.vizchitra-in.workers.dev
+```
+
+`account_id` isn't needed locally either — `wrangler whoami` plus an
+authenticated session (step 2) is enough for `wrangler dev`.
+
 ```
 npm run dev                              # apps/studio, SvelteKit dev server
 cd services/media && wrangler dev        # media Worker + queue consumer
@@ -108,10 +134,22 @@ cd services/media && wrangler deploy
 Do this once by hand to confirm everything's wired up correctly. After
 that, merges to `main` deploy automatically (step 9).
 
+Since `account_id` is no longer in either `wrangler.toml` (issue #23),
+export `CLOUDFLARE_ACCOUNT_ID` first (`wrangler whoami` shows it) —
+otherwise Wrangler can't tell which account to deploy to. And since
+`CF_ACCESS_TEAM_DOMAIN`/`CF_ACCESS_AUD`/`MEDIA_SERVICE_URL` are Worker
+secrets rather than `[vars]` now, this manual deploy won't set them —
+either run the equivalent `wrangler secret put` commands from
+`deploy.yml` once by hand, or just merge a PR afterwards and let
+`deploy.yml` set them automatically.
+
 ## 8. GitHub Actions secrets
 
-The CI/CD workflows in `.github/workflows/` need two repo secrets to
-talk to Cloudflare.
+The CI/CD workflows in `.github/workflows/` need five repo secrets to
+talk to Cloudflare and to populate the Worker secrets `deploy.yml` sets
+after each deploy (issue #23 — `account_id`/`CF_ACCESS_TEAM_DOMAIN`/
+`CF_ACCESS_AUD`/`MEDIA_SERVICE_URL` no longer live in either
+`wrangler.toml`).
 
 Create a scoped API token: Cloudflare dashboard → My Profile → API
 Tokens → Create Token → Custom token, with:
@@ -129,6 +167,9 @@ CLI:
 ```
 gh secret set CLOUDFLARE_API_TOKEN --repo vizchitra/studio
 gh secret set CLOUDFLARE_ACCOUNT_ID --repo vizchitra/studio   # from `wrangler whoami`
+gh secret set CF_ACCESS_TEAM_DOMAIN --repo vizchitra/studio   # e.g. vizchitra.cloudflareaccess.com
+gh secret set CF_ACCESS_AUD --repo vizchitra/studio           # Access application's AUD tag (Zero Trust dashboard)
+gh secret set MEDIA_SERVICE_URL --repo vizchitra/studio       # e.g. https://studio-media.vizchitra-in.workers.dev
 ```
 
 ## 9. Branch protection on main
