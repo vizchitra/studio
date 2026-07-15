@@ -233,6 +233,12 @@ export const actions: Actions = {
     const form = await request.formData();
     const assetId = form.get("assetId");
     const step = form.get("step");
+    // Lets other admin pages (e.g. /admin/pipeline-validation) point their
+    // own re-run buttons at this same action without being redirected away
+    // to /assets afterwards. Only ever a same-origin app path, never a
+    // full URL — an open-redirect via this field would need the value to
+    // reach here from outside our own <form>s, which it can't.
+    const redirectTo = form.get("redirectTo");
     if (typeof assetId !== "string") return fail(400, { error: "Missing assetId" });
     if (typeof step !== "string" || !MEDIA_PIPELINE_STEPS.includes(step as MediaPipelineStep)) {
       return fail(400, { error: "Missing or invalid step" });
@@ -246,7 +252,10 @@ export const actions: Actions = {
     if (!canReprocess(role)) return fail(403, { error: "Insufficient permissions to reprocess" });
 
     await queue.send({ assetId, step: step as MediaPipelineStep });
-    redirect(303, "/assets");
+    redirect(
+      303,
+      typeof redirectTo === "string" && redirectTo.startsWith("/") ? redirectTo : "/assets",
+    );
   },
 
   // Manual identity confirmation for a detected face box (closes #31) —
