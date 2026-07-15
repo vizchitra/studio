@@ -4,6 +4,15 @@ Running log of what changed and why. Newest first.
 
 ## Unreleased
 
+### Fixed
+
+- `/admin/pipeline-validation`'s grid was squeezed into
+  `.content-container`'s 48rem prose max-width, forcing horizontal
+  scrolling inside a narrow column instead of using the page. New
+  `.wide-container` (`max-width: var(--width-content)`, 80rem — the wide
+  variant `UI_PRINCIPLES.md`'s Container section already called for)
+  replaces it on that page.
+
 ### Added
 
 - Admin pipeline validation page at `/admin/pipeline-validation` (closes
