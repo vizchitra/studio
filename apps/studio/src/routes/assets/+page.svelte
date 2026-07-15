@@ -27,6 +27,14 @@
           {#if asset.exifSummary}
             <span class="asset-detail">{asset.exifSummary}</span>
           {/if}
+          {#if asset.quality_score !== null}
+            <span class="asset-detail">
+              Quality: {asset.quality_score}/100
+              {#if asset.qualityFlags.length > 0}
+                &middot; {asset.qualityFlags.join(", ")}
+              {/if}
+            </span>
+          {/if}
           {#if asset.created_by_name}
             <span class="asset-detail">Uploaded by {asset.created_by_name}</span>
           {/if}

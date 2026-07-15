@@ -31,6 +31,47 @@ function makeTestPng(width: number, height: number, seed = 0): Uint8Array {
   }
 }
 
+// A genuinely flat image (no edges at all) for blur/exposure testing —
+// unlike makeTestPng's gradient, which has periodic modulo-wraparound seams
+// that read as spurious high-frequency edges to a Laplacian filter.
+function makeFlatPng(width: number, height: number, brightness: number): Uint8Array {
+  const pixels = new Uint8Array(width * height * 4);
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = brightness;
+    pixels[i + 1] = brightness;
+    pixels[i + 2] = brightness;
+    pixels[i + 3] = 255;
+  }
+  const image = new PhotonImage(pixels, width, height);
+  try {
+    return image.get_bytes();
+  } finally {
+    image.free();
+  }
+}
+
+// A high-contrast checkerboard — plenty of sharp edges for the blur
+// heuristic to detect as "not blurry".
+function makeCheckerboardPng(width: number, height: number, squareSize = 4): Uint8Array {
+  const pixels = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const value = (Math.floor(x / squareSize) + Math.floor(y / squareSize)) % 2 === 0 ? 0 : 255;
+      pixels[i] = value;
+      pixels[i + 1] = value;
+      pixels[i + 2] = value;
+      pixels[i + 3] = 255;
+    }
+  }
+  const image = new PhotonImage(pixels, width, height);
+  try {
+    return image.get_bytes();
+  } finally {
+    image.free();
+  }
+}
+
 describe("runPipelineStep", () => {
   let ctx: PipelineContext;
 
@@ -408,5 +449,125 @@ describe("duplicate_detection step", () => {
       .bind(ctx.assetId, ctx.assetId)
       .first<{ count: number }>();
     expect(afterRetry?.count).toBe(1);
+  });
+});
+
+describe("quality_scoring step", () => {
+  let ctx: PipelineContext;
+
+  async function seedOriginal(assetId: string, png: Uint8Array) {
+    const versionId = `test-version-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const r2Key = `originals/${assetId}/test.png`;
+    await env.MEDIA_BUCKET.put(r2Key, png, { httpMetadata: { contentType: "image/png" } });
+    await env.DB.prepare(
+      `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
+       VALUES (?, ?, 'original', 'image/png', ?, ?, 'deadbeef', ?)`,
+    )
+      .bind(versionId, assetId, r2Key, png.byteLength, now)
+      .run();
+  }
+
+  beforeEach(async () => {
+    const assetId = `test-asset-${crypto.randomUUID()}`;
+    ctx = {
+      assetId,
+      db: env.DB,
+      bucket: env.MEDIA_BUCKET,
+      queue: env.MEDIA_QUEUE,
+    };
+
+    const personId = `test-person-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await ctx.db.batch([
+      ctx.db
+        .prepare(`INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+        .bind(personId, "Test Person", now, now),
+      ctx.db
+        .prepare(
+          `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
+           VALUES (?, 'draft', 'photo', ?, ?, ?, ?, ?)`,
+        )
+        .bind(assetId, "test.png", now, now, personId, personId),
+    ]);
+  });
+
+  it("throws when there is no 'original' asset_version row (retryable)", async () => {
+    await expect(runPipelineStep("quality_scoring", ctx)).rejects.toThrow(
+      "No 'original' asset_version found",
+    );
+  });
+
+  it("skips non-image mime types", async () => {
+    const versionId = `test-version-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await ctx.db
+      .prepare(
+        `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
+         VALUES (?, ?, 'original', 'application/pdf', ?, 0, 'deadbeef', ?)`,
+      )
+      .bind(versionId, ctx.assetId, `originals/${ctx.assetId}/doc.pdf`, now)
+      .run();
+
+    await runPipelineStep("quality_scoring", ctx);
+
+    const run = await ctx.db
+      .prepare(
+        `SELECT status, output FROM asset_pipeline_run WHERE asset_id = ? AND step = 'quality_scoring'`,
+      )
+      .bind(ctx.assetId)
+      .first<{ status: string; output: string }>();
+    expect(run?.status).toBe("done");
+    expect(JSON.parse(run?.output ?? "{}")).toMatchObject({ skipped: true });
+  });
+
+  it("flags a flat image as blurry and stores a score", async () => {
+    await seedOriginal(ctx.assetId, makeFlatPng(128, 128, 128));
+
+    await runPipelineStep("quality_scoring", ctx);
+
+    const asset = await ctx.db
+      .prepare(`SELECT quality_score, quality_flags FROM asset WHERE id = ?`)
+      .bind(ctx.assetId)
+      .first<{ quality_score: number; quality_flags: string }>();
+    expect(asset?.quality_score).toBeGreaterThanOrEqual(0);
+    expect(asset?.quality_score).toBeLessThanOrEqual(100);
+    expect(JSON.parse(asset?.quality_flags ?? "[]")).toContain("blurry");
+  });
+
+  it("does not flag a high-contrast checkerboard as blurry", async () => {
+    await seedOriginal(ctx.assetId, makeCheckerboardPng(128, 128));
+
+    await runPipelineStep("quality_scoring", ctx);
+
+    const asset = await ctx.db
+      .prepare(`SELECT quality_flags FROM asset WHERE id = ?`)
+      .bind(ctx.assetId)
+      .first<{ quality_flags: string }>();
+    expect(JSON.parse(asset?.quality_flags ?? "[]")).not.toContain("blurry");
+  });
+
+  it("flags a very dark flat image as underexposed", async () => {
+    await seedOriginal(ctx.assetId, makeFlatPng(128, 128, 10));
+
+    await runPipelineStep("quality_scoring", ctx);
+
+    const asset = await ctx.db
+      .prepare(`SELECT quality_flags FROM asset WHERE id = ?`)
+      .bind(ctx.assetId)
+      .first<{ quality_flags: string }>();
+    expect(JSON.parse(asset?.quality_flags ?? "[]")).toContain("underexposed");
+  });
+
+  it("flags a very bright flat image as overexposed", async () => {
+    await seedOriginal(ctx.assetId, makeFlatPng(128, 128, 250));
+
+    await runPipelineStep("quality_scoring", ctx);
+
+    const asset = await ctx.db
+      .prepare(`SELECT quality_flags FROM asset WHERE id = ?`)
+      .bind(ctx.assetId)
+      .first<{ quality_flags: string }>();
+    expect(JSON.parse(asset?.quality_flags ?? "[]")).toContain("overexposed");
   });
 });

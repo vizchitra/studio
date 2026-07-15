@@ -11,6 +11,8 @@ interface AssetRow {
   created_by_name: string | null;
   thumbnail_r2_key: string | null;
   exif_json: string | null;
+  quality_score: number | null;
+  quality_flags_json: string | null;
 }
 
 export const load: PageServerLoad = async ({ platform }) => {
@@ -21,6 +23,7 @@ export const load: PageServerLoad = async ({ platform }) => {
     .prepare(
       `SELECT
          a.id, a.status, a.kind, a.title, a.created_at,
+         a.quality_score, a.quality_flags as quality_flags_json,
          p.name as created_by_name,
          thumb.r2_key as thumbnail_r2_key,
          orig.exif as exif_json
@@ -46,7 +49,17 @@ export const load: PageServerLoad = async ({ platform }) => {
         exifSummary = null;
       }
     }
-    return { ...row, exifSummary };
+
+    let qualityFlags: string[] = [];
+    if (row.quality_flags_json) {
+      try {
+        qualityFlags = JSON.parse(row.quality_flags_json) as string[];
+      } catch {
+        qualityFlags = [];
+      }
+    }
+
+    return { ...row, exifSummary, qualityFlags };
   });
 
   return { assets };
