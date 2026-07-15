@@ -6,7 +6,12 @@
 
 <div class="content-container">
   <h1 class="font-display">Assets</h1>
-  <p class="content-text"><a href="/">&larr; Back to upload</a></p>
+  <p class="content-text">
+    <a href="/">&larr; Back to upload</a>
+    {#if data.reprocessEnabled}
+      &middot; <a href="/admin/pipeline-validation">Pipeline validation</a>
+    {/if}
+  </p>
 
   {#if form?.error}
     <p class="notice-error">{form.error}</p>

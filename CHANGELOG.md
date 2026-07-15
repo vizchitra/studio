@@ -6,6 +6,22 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Admin pipeline validation page at `/admin/pipeline-validation` (closes
+  #39, depends on #38): a grid, one row per seeded fixture asset and one
+  column per `MEDIA_PIPELINE_STEPS` entry. Each cell shows that step's
+  latest `asset_pipeline_run` status (not run/running/done/failed) plus a
+  short rendering of its output where there is one — dHash + Hamming
+  matches for `duplicate_detection`, score + flags for `quality_scoring`,
+  a thumbnail with detected boxes overlaid for `face_clustering`, the raw
+  stub `{done:true}` for everything not implemented yet — and a "Re-run"
+  button that resubmits to the existing `/assets` `reprocess` action
+  (#32), so tuning a threshold and re-checking is a click, not a
+  re-upload. Gated by `canReprocess` (administrator only), linked from
+  `/assets` for anyone who has it. No new scoring/pass-fail logic — a
+  human-eyeball tool, not an automated regression suite. The `reprocess`
+  action now accepts an optional `redirectTo` field (same-origin path
+  only) so cross-route re-run buttons don't get bounced to `/assets`
+  afterwards; defaults to `/assets` for the existing review-UI buttons.
 - Pipeline validation fixture set + seed script (closes #38):
   `services/media/fixtures/` holds 14 synthetic images/PDF (single-subject
   and 3-subject "portrait"/"group" stand-ins, a near-duplicate pair +
