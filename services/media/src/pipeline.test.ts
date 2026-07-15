@@ -571,3 +571,90 @@ describe("quality_scoring step", () => {
     expect(JSON.parse(asset?.quality_flags ?? "[]")).toContain("overexposed");
   });
 });
+
+describe("search_indexing step", () => {
+  let ctx: PipelineContext;
+
+  beforeEach(async () => {
+    const assetId = `test-asset-${crypto.randomUUID()}`;
+    ctx = {
+      assetId,
+      db: env.DB,
+      bucket: env.MEDIA_BUCKET,
+      queue: env.MEDIA_QUEUE,
+    };
+
+    const personId = `test-person-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await ctx.db.batch([
+      ctx.db
+        .prepare(`INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+        .bind(personId, "Test Person", now, now),
+      ctx.db
+        .prepare(
+          `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
+           VALUES (?, 'draft', 'photo', ?, ?, ?, ?, ?)`,
+        )
+        .bind(assetId, "Sunset over the venue", now, now, personId, personId),
+    ]);
+  });
+
+  it("throws when the asset row doesn't exist", async () => {
+    // Calling PIPELINE.search_indexing directly (not via runPipelineStep):
+    // asset_pipeline_run.asset_id is itself an FK to asset.id, so a
+    // nonexistent assetId would fail at that INSERT before ever reaching
+    // the step — this test is only about the step's own guard.
+    await expect(
+      PIPELINE.search_indexing({ ...ctx, assetId: `missing-${crypto.randomUUID()}` }),
+    ).rejects.toThrow("No asset found");
+  });
+
+  it("indexes title, kind, EXIF summary, and quality flags into body, with empty tags", async () => {
+    const now = new Date().toISOString();
+    await ctx.db
+      .prepare(
+        `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, exif, created_at)
+         VALUES (?, ?, 'original', 'image/jpeg', ?, 0, 'deadbeef', ?, ?)`,
+      )
+      .bind(
+        `test-version-${crypto.randomUUID()}`,
+        ctx.assetId,
+        `originals/${ctx.assetId}/test.jpg`,
+        JSON.stringify({ Make: "Canon", Model: "EOS R5", DateTimeOriginal: "2026:01:01 10:00:00" }),
+        now,
+      )
+      .run();
+    await ctx.db
+      .prepare(`UPDATE asset SET quality_flags = ? WHERE id = ?`)
+      .bind(JSON.stringify(["blurry"]), ctx.assetId)
+      .run();
+
+    await runPipelineStep("search_indexing", ctx);
+
+    const row = await ctx.db
+      .prepare(
+        `SELECT title, body, tags FROM search_index WHERE entity_type = 'asset' AND entity_id = ?`,
+      )
+      .bind(ctx.assetId)
+      .first<{ title: string; body: string; tags: string }>();
+    expect(row?.title).toBe("Sunset over the venue");
+    expect(row?.body).toContain("photo");
+    expect(row?.body).toContain("Canon");
+    expect(row?.body).toContain("EOS R5");
+    expect(row?.body).toContain("blurry");
+    expect(JSON.parse(row?.tags ?? "null")).toEqual([]);
+  });
+
+  it("is idempotent on retry (upsert, not insert)", async () => {
+    await runPipelineStep("search_indexing", ctx);
+    await runPipelineStep("search_indexing", ctx);
+
+    const count = await ctx.db
+      .prepare(
+        `SELECT COUNT(*) as count FROM search_index WHERE entity_type = 'asset' AND entity_id = ?`,
+      )
+      .bind(ctx.assetId)
+      .first<{ count: number }>();
+    expect(count?.count).toBe(1);
+  });
+});

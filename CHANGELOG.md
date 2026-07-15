@@ -6,6 +6,11 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- `search_indexing` pipeline step (closes #29): upserts a `search_index`
+  row per asset (title, kind + EXIF Make/Model/DateTimeOriginal + quality
+  flags in `body`, empty `tags` for now — the only tag source would be
+  `vision_tagging`, still a stub). Idempotent via `ON CONFLICT` upsert on
+  the table's `(entity_type, entity_id)` primary key.
 - Admin "Reprocess" action in the `/assets` review UI (closes #32): resumes
   an existing asset at a chosen pipeline step by re-sending
   `{ assetId, step }` to `MEDIA_QUEUE` — `runPipelineStep` already enqueues

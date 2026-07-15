@@ -476,8 +476,58 @@ async function qualityScoringStep(ctx: PipelineContext) {
   return { done: true, ...metrics };
 }
 
-async function searchIndexingStep(_ctx: PipelineContext) {
-  // TODO: upsert search_index row from Asset + AssetVersion + tags.
+// search_index.tags is left empty for now — the only tag source would be
+// vision_tagging, which is still a stub. quality_flags (blurry/under-
+// /overexposed) go into `body` instead of `tags`: they describe image
+// condition, not subject matter, but they're still useful free-text search
+// terms (e.g. an editor searching "blurry" to find rejects).
+async function searchIndexingStep(ctx: PipelineContext) {
+  const asset = await ctx.db
+    .prepare(`SELECT title, kind, quality_flags FROM asset WHERE id = ?`)
+    .bind(ctx.assetId)
+    .first<{ title: string | null; kind: string; quality_flags: string | null }>();
+  if (!asset) {
+    throw new Error(`No asset found for ${ctx.assetId}`);
+  }
+
+  const version = await ctx.db
+    .prepare(`SELECT exif FROM asset_version WHERE asset_id = ? AND kind = 'original'`)
+    .bind(ctx.assetId)
+    .first<{ exif: string | null }>();
+
+  const bodyParts = [asset.kind];
+  if (version?.exif) {
+    try {
+      const exif = JSON.parse(version.exif) as Record<string, unknown>;
+      for (const key of ["Make", "Model", "DateTimeOriginal"]) {
+        if (typeof exif[key] === "string") bodyParts.push(exif[key]);
+      }
+    } catch {
+      // Malformed EXIF JSON — already handled as a skip in exif_extraction,
+      // just don't let it block indexing here.
+    }
+  }
+  if (asset.quality_flags) {
+    try {
+      const flags = JSON.parse(asset.quality_flags) as string[];
+      bodyParts.push(...flags);
+    } catch {
+      // Same — don't let malformed data block indexing.
+    }
+  }
+
+  const now = new Date().toISOString();
+  await ctx.db
+    .prepare(
+      `INSERT INTO search_index (entity_id, entity_type, title, body, tags, updated_at)
+       VALUES (?, 'asset', ?, ?, ?, ?)
+       ON CONFLICT (entity_type, entity_id) DO UPDATE SET
+         title = excluded.title, body = excluded.body, tags = excluded.tags,
+         updated_at = excluded.updated_at`,
+    )
+    .bind(ctx.assetId, asset.title, bodyParts.join(" "), JSON.stringify([]), now)
+    .run();
+
   return { done: true };
 }
 
