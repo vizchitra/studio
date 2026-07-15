@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@studio/domain": "*",
     "ulid": "^2.3.0"
   },
   "devDependencies": {

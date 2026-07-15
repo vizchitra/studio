@@ -74,6 +74,12 @@ Roles may include:
 -   Photographer
 -   Sponsor Contact
 
+These describe event participation, not Studio access — what someone is
+allowed to *do in the software* (upload, approve, administer) is a separate
+concept, see [Studio Architecture RFC v1](Studio%20Architecture%20RFC%20v1.md),
+Permissions section. A Person can hold either, both, or neither
+independently.
+
 A Person may participate in many Events and Sessions.
 
 ------------------------------------------------------------------------

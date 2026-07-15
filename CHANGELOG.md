@@ -4,6 +4,35 @@ Running log of what changed and why. Newest first.
 
 ## Unreleased
 
+### Added
+
+- Enforce `person`'s Studio access role before upload (`services/media`
+  `POST /assets`) and approve/reject (`apps/studio` `/assets` review UI)
+  (closes #28). Introduces `StudioAccessRole` (administrator/editor/
+  reviewer/photographer/volunteer/viewer) in `packages/domain` — a
+  distinct concept from the existing `PersonRole` (speaker/contributor/
+  etc.), which describes event participation, not Studio permissions;
+  the two lists share some words ("reviewer", "photographer") coincidentally,
+  not by design. Grants live in the existing `permission` table
+  (`entity_type`/`entity_id`/`person_id`/`role`), which had no baseline-role
+  convention until now: `entity_type = 'studio'`, `entity_id = 'global'` is
+  the baseline grant, and any other `entity_type`/`entity_id` is an
+  entity-level override that takes precedence for that entity — the same
+  mechanism serves both, per the RFC's "role-based with entity-level
+  overrides" model. Deny by default: no `permission` row means no access.
+  Docs updated to stop the two role lists from reading as one concept
+  (RFC v1 Permissions section, Domain Model Person section, Data Model
+  Permission section).
+- `quality_scoring` pipeline step (closes #16): computes blur (variance of
+  a Laplacian-filtered grayscale downscale, Pech-Pacheco et al.) and
+  exposure (mean grayscale brightness) heuristics via `@cf-wasm/photon`,
+  writes a 0-100 `asset.quality_score` and `asset.quality_flags` (e.g.
+  `["blurry", "underexposed"]`). Advisory only, surfaced in the `/assets`
+  gallery for editorial triage — same nullability/skip rules as
+  `duplicate_detection` (non-image, undecodable, or oversized originals).
+- `LICENSE.md` (closes #25): MIT for code, all-rights-reserved for
+  content/media data, ahead of making the repo public.
+
 ### Changed
 
 - Moved `CF_ACCESS_TEAM_DOMAIN`/`CF_ACCESS_AUD` (`services/media`) and

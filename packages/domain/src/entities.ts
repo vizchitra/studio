@@ -35,6 +35,23 @@ export type PersonRole =
   | "photographer"
   | "sponsor_contact";
 
+/**
+ * Studio access-control role — what a Person is allowed to do in the
+ * software. Distinct from PersonRole (what they do in the real world, e.g.
+ * "speaker"/"sponsor_contact") despite sharing some words ("reviewer",
+ * "photographer") — those are coincidental overlaps in English, not the same
+ * fact. See architecture/Studio Architecture RFC v1.md, Permissions section
+ * (authoritative for this list) vs Studio Domain Model.md (authoritative for
+ * PersonRole).
+ */
+export type StudioAccessRole =
+  | "administrator"
+  | "editor"
+  | "reviewer"
+  | "photographer"
+  | "volunteer"
+  | "viewer";
+
 export interface Organisation extends EntityBase {
   type: "organisation";
   name: string;
@@ -157,5 +174,20 @@ export interface Activity {
   actor_id: string; // Person id
   action: string;
   payload?: Record<string, unknown>;
+  created_at: string;
+}
+
+/**
+ * A person's StudioAccessRole grant, either baseline (entity_type: "studio",
+ * entity_id: "global") or an entity-level override (e.g. entity_type:
+ * "asset", entity_id: <asset id>) that takes precedence over the baseline
+ * for that specific entity. See Studio Data Model.md, permission table.
+ */
+export interface Permission {
+  id: string;
+  entity_id: string;
+  entity_type: string;
+  person_id: string; // Person id
+  role: StudioAccessRole;
   created_at: string;
 }

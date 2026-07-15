@@ -152,6 +152,15 @@ Published APIs are read-only.
 
 # Permissions
 
+Studio access roles (`StudioAccessRole` in `packages/domain`) — what a
+Person is allowed to do in the software, not what they do at the event.
+Despite sharing some words with Person.roles (e.g. "Reviewer",
+"Photographer"), these are a separate concept: a CFP reviewer and a "can
+review submissions in Studio" grant are different facts that merely
+correlate often enough to be confusing. See [Studio Domain
+Model](Studio%20Domain%20Model.md), Person section, for the participation
+role list this must not be merged with.
+
 Roles:
 
 -   Administrator
@@ -161,7 +170,11 @@ Roles:
 -   Volunteer
 -   Viewer
 
-Permissions are role-based with entity-level overrides.
+Permissions are role-based with entity-level overrides: every Person has a
+baseline role and may additionally hold entity-specific overrides. Both are
+stored as rows in the `permission` table (see Studio Data Model.md) — the
+baseline is just the row with `entity_type = "studio"`, `entity_id =
+"global"`, not a separate mechanism.
 
 ------------------------------------------------------------------------
 

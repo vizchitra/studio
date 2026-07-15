@@ -1,4 +1,5 @@
-import { ulid, sha256Hex } from "@studio/shared";
+import { ulid, sha256Hex, canUpload } from "@studio/shared";
+import type { StudioAccessRole } from "@studio/domain";
 import { runPipelineStep, type PipelineContext } from "./pipeline";
 import { verifyAccessJwt, AccessAuthError, type AccessEnv } from "./access-auth";
 
@@ -51,6 +52,11 @@ export default {
     // asset.created_by/updated_by are FKs to person.id, not raw emails —
     // resolve (or provision) the person row for the authenticated user.
     const personId = await getOrCreatePersonId(env.DB, userEmail);
+
+    const role = await getBaselineRole(env.DB, personId);
+    if (!canUpload(role)) {
+      return new Response("Forbidden: insufficient permissions to upload", { status: 403 });
+    }
 
     const assetId = ulid();
     const versionId = ulid();
@@ -119,6 +125,20 @@ async function getOrCreatePersonId(db: D1Database, email: string): Promise<strin
     .bind(id, email, email, now, now)
     .run();
   return id;
+}
+
+// Baseline StudioAccessRole grant — a `permission` row with entity_type =
+// 'studio', entity_id = 'global' (see architecture/Studio Data Model.md,
+// Permission section). No entity-level override lookup here: uploading
+// creates the asset, so there's no existing entity to hold an override yet.
+async function getBaselineRole(db: D1Database, personId: string): Promise<StudioAccessRole | null> {
+  const row = await db
+    .prepare(
+      `SELECT role FROM permission WHERE entity_type = 'studio' AND entity_id = 'global' AND person_id = ?`,
+    )
+    .bind(personId)
+    .first<{ role: StudioAccessRole }>();
+  return row?.role ?? null;
 }
 
 function guessKind(mimeType: string): string {
