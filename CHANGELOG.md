@@ -4,6 +4,20 @@ Running log of what changed and why. Newest first.
 
 ## Unreleased
 
+### Changed
+
+- Moved `CF_ACCESS_TEAM_DOMAIN`/`CF_ACCESS_AUD` (`services/media`) and
+  `MEDIA_SERVICE_URL` (`apps/studio`) out of `wrangler.toml` `[vars]`
+  into Worker secrets, and dropped `account_id` from both files entirely
+  (closes #23) — none of these are true secrets by Cloudflare's model,
+  but the repo may go public, so moved them anyway. `deploy.yml` now
+  runs `wrangler secret put` for each after every deploy, piped from
+  three new repo secrets of the same names; `CLOUDFLARE_ACCOUNT_ID`
+  (already a repo secret) covers `account_id` via Wrangler's env-var
+  fallback. No code changes needed — secrets and `[vars]` both surface
+  identically on `env` at runtime. Local `wrangler dev` now needs a
+  `.dev.vars` file per service (gitignored, documented in SETUP.md).
+
 ### Added
 
 - Asset gallery + review UI at `/assets` in `apps/studio` (closes #15):
