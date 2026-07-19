@@ -25,7 +25,7 @@
   <Grid gap="var(--space-flow-0)">
     {#each data.assets as asset (asset.id)}
       <Card>
-        <div class="asset-image-wrap">
+        <a class="asset-image-wrap" href="/assets/{asset.id}">
           {#if asset.thumbnail_r2_key}
             <img src="/media/{asset.thumbnail_r2_key}" alt={asset.title ?? asset.kind} />
           {:else}
@@ -43,7 +43,7 @@
               {/if}
             </div>
           {/each}
-        </div>
+        </a>
 
         {#if asset.faces.some((f) => !f.person_name)}
           <div class="face-confirm-list">
@@ -58,7 +58,7 @@
         {/if}
 
         <div class="asset-meta">
-          <strong>{asset.title ?? "(untitled)"}</strong>
+          <a class="asset-title" href="/assets/{asset.id}">{asset.title ?? "(untitled)"}</a>
           <Badge kind="editorial" value={asset.status} />
           <span class="asset-detail">{asset.kind}</span>
           {#if asset.exifSummary}
@@ -76,31 +76,6 @@
             <span class="asset-detail">Uploaded by {asset.created_by_name}</span>
           {/if}
         </div>
-
-        {#if asset.status === "draft" || asset.status === "review"}
-          <div class="asset-actions">
-            <form method="POST" action="?/approve">
-              <input type="hidden" name="assetId" value={asset.id} />
-              <Button variant="primary">Approve</Button>
-            </form>
-            <form method="POST" action="?/reject">
-              <input type="hidden" name="assetId" value={asset.id} />
-              <Button variant="danger">Reject</Button>
-            </form>
-          </div>
-        {/if}
-
-        {#if data.reprocessEnabled}
-          <form method="POST" action="?/reprocess" class="asset-reprocess">
-            <input type="hidden" name="assetId" value={asset.id} />
-            <select name="step" aria-label="Pipeline step">
-              {#each data.pipelineSteps as step (step)}
-                <option value={step}>{step}</option>
-              {/each}
-            </select>
-            <Button variant="tertiary">Reprocess</Button>
-          </form>
-        {/if}
       </Card>
     {/each}
   </Grid>
@@ -113,6 +88,7 @@
 
   .asset-image-wrap {
     position: relative;
+    display: block;
   }
 
   .asset-image-wrap img {
@@ -179,22 +155,8 @@
     color: var(--color-text-secondary);
   }
 
-  .asset-actions {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0 0.75rem 0.75rem;
-  }
-
-  .asset-reprocess {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0 0.75rem 0.75rem;
-    border-top: 1px dashed var(--color-border);
-    padding-top: 0.5rem;
-  }
-
-  .asset-reprocess select {
-    flex: 1;
-    min-width: 0;
+  .asset-title {
+    font-weight: 600;
+    color: var(--color-ink);
   }
 </style>

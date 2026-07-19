@@ -6,6 +6,21 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Asset detail page (closes #56): `/assets/[id]` — largest available
+  derivative (web, falling back to original), full metadata (EXIF
+  summary, quality score/flags, tags via `tagged_with`, `captured_by`),
+  the complete `asset_version` list with sizes/checksums, and full
+  `asset_pipeline_run` history per step (not just the latest run, so
+  retries are visible). Approve/Reject/Reprocess moved here from the
+  `/assets` grid card — a review decision shouldn't be made from a
+  thumbnail — gated by the same `canReview`/`canReprocess` role checks,
+  now also applied to whether the controls render at all (previously
+  Approve/Reject rendered unconditionally on the grid and only enforced
+  the role server-side). The grid card's thumbnail and title link to the
+  detail page instead. `approve`/`reject` actions on
+  `assets/+page.server.ts` gained an optional `redirectTo` field (mirrors
+  the existing `reprocess` action) so acting from the detail page returns
+  there instead of to `/assets`.
 - RAW originals in `preview_generation` (closes #47): CR2/CR3/NEF/ARW/
   DNG/RAF/ORF/RW2 files (detected by extension, since RAW uploads rarely
   carry an `image/*` mime type — new `isRawExtension()` in

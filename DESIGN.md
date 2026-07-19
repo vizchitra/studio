@@ -142,6 +142,35 @@ entirely.
 Revisit only if `ocr`/`vision_tagging` end up needing a different model
 than Moondream anyway, which would remove the reuse argument.
 
+## Photo attribution: `captured_by` is separate from `created_by`, never inferred from the uploader
+
+Every entity already has `created_by`/`updated_by` — audit fields for who
+performed the action in the system. Attribution ("who took this photo")
+is a different fact, and conflating them breaks as soon as one person
+uploads photos they didn't shoot — a volunteer coordinator collecting
+from several photographers, or an admin running a bulk import of an
+official photographer's work. So `captured_by` is a `Relationship`
+(Asset → Person or Asset → Organisation), resolved independently per
+import path, and required before publish (`architecture/Studio Data
+Model.md`'s publish check refuses an Asset with none).
+
+Resolution differs by path, not by one shared default:
+
+- **Zip bulk import** — the filename's code token is looked up in
+  `services/media/photographer-codes.json` against a specific Person.
+  Unresolved codes (or Historical Import batches with no code at all)
+  fall back to the VizChitra Organisation, resolved via
+  `getVizchitraOrganisationId` (get-or-create at first use, not a
+  migration seed row — no fixture data to keep in sync).
+- **Direct upload** (volunteer/attendee, one or few files) — a required
+  prompt at upload time, defaulting the suggested name to the uploader
+  but always changeable. Never silently assumed from who's logged in.
+
+The filename parsing pattern itself is a configurable per-batch template
+(`import_batch.filename_template`), not a hardcoded regex — photographer
+naming conventions differ by person and by year, and hardcoding one
+would need a code change every time a convention shifted.
+
 ## Open questions (not yet decided)
 
 - R2 key naming convention beyond `originals/{assetId}/{filename}` — not
