@@ -6,6 +6,21 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Attribution + context-tag prompt on direct uploads (closes #44): the
+  `/` upload form now asks "Who took this photo?" (required, defaults to
+  the signed-in uploader's own name but is freely editable — the
+  uploader and photographer are often different people; autocompletes
+  against existing Person names via `<datalist>`, create-if-missing by
+  name on submit, same `getOrCreatePersonByName` resolution as a
+  confirmed face box, #31) and an optional context tag (venue/session,
+  autocompletes against existing Tag names). Writes `captured_by` and
+  `tagged_with` relationships respectively. The `/assets` approve action
+  now refuses to approve an asset with no `captured_by` relationship —
+  attribution is required before publish, not just requested. New
+  `apps/studio/src/lib/server/relationships.ts` (`createRelationship`,
+  `getOrCreateTagId`, `hasCapturedBy`) — shared with the upcoming bulk
+  import and Historical Import work (#45, #46), which need the same
+  relationship-writing.
 - `tagged_with` and `captured_by` relationship kinds (closes #43):
   `tagged_with` (Asset -> Tag, e.g. a bulk-import folder name becoming a
   Tag) and `captured_by` (Asset -> Person | Organisation, photo

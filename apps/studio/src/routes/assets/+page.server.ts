@@ -5,6 +5,7 @@ import {
   getOrCreatePersonByName,
   getOrCreatePersonId,
 } from "$lib/server/permissions";
+import { hasCapturedBy } from "$lib/server/relationships";
 import type { Actions, PageServerLoad } from "./$types";
 import type { MediaPipelineStep } from "@studio/shared";
 
@@ -136,6 +137,13 @@ export const actions: Actions = {
     const personId = await getOrCreatePersonId(db, locals.user.email);
     const role = await getEffectiveRole(db, personId, "asset", assetId);
     if (!canReview(role)) return fail(403, { error: "Insufficient permissions to approve" });
+    // Attribution is required, not just requested (#44) — a captured_by
+    // relationship must exist before an asset can move toward publish.
+    if (!(await hasCapturedBy(db, assetId))) {
+      return fail(400, {
+        error: "Missing photo attribution — this asset has no captured_by credit",
+      });
+    }
     await setStatus(db, assetId, "approved", personId);
     // The pipeline already ran 'publish' once automatically on upload, but
     // skipped it (asset was still 'draft') — re-send it now that the status
