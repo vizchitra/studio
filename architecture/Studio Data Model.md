@@ -117,7 +117,10 @@ from Person, enforced at the application layer, not the schema).
 Organisation) both go through this same generic mechanism rather than a
 dedicated table each — `captured_by` is deliberately separate from
 `Asset.created_by` (the audit field for who performed the upload, not
-necessarily who took the photo).
+necessarily who took the photo). Attribution is required, not optional:
+the review UI's approve action (`apps/studio/src/routes/assets/
++page.server.ts`) refuses to approve an Asset with no `captured_by`
+relationship.
 
 ## Cross-cutting Tables
 
