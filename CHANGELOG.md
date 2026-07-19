@@ -6,6 +6,22 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- `tagged_with` and `captured_by` relationship kinds (closes #43):
+  `tagged_with` (Asset -> Tag, e.g. a bulk-import folder name becoming a
+  Tag) and `captured_by` (Asset -> Person | Organisation, photo
+  attribution/credit — deliberately separate from `Asset.created_by`,
+  the audit field for who performed the upload, not necessarily who
+  took the photo) added to `RelationshipKind` in `packages/domain`.
+  `Organisation.kind` gained `organiser` (none of the existing values
+  meant "the organiser itself"); `services/media/scripts/
+  seed-vizchitra-organisation.ts` seeds a single VizChitra organisation
+  row as the `captured_by` target for official/final photos with no
+  individual credit. `migrations/0007_relationship_tag_membership.sql`
+  drops the `entity_tag` table — it was scaffolded in 0001 for the same
+  "which entities have this tag" job `tagged_with` now covers, but
+  nothing in the codebase ever referenced it; keeping both would mean
+  two mechanisms for one fact. `architecture/Studio Data Model.md` and
+  `Studio Domain Model.md` updated to match.
 - Shared UI component layer at `apps/studio/src/lib/components/` (closes
   #48): `Container` (narrow/wide), `Stack`, `Cluster`, `Grid` (layout
   primitives extracted from ad hoc per-route CSS); `Card`, `Badge`

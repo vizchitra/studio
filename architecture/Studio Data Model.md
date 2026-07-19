@@ -30,7 +30,11 @@ Unified identity reused across all events.
 
 ### Organisation
 
-Sponsors, partners, employers, venues.
+Sponsors, partners, employers, venues. `kind` is one of sponsor / partner /
+venue / employer / media / organiser — `organiser` is VizChitra itself, seeded
+once (`services/media/scripts/seed-vizchitra-organisation.ts`) as the
+`captured_by` target for official/final photos with no individual
+photographer credit.
 
 ### Event
 
@@ -87,7 +91,9 @@ Immutable published release.
 
 ### Tag
 
-Shared taxonomy.
+Shared taxonomy. Membership (which entities carry a Tag) goes through
+`Relationship` (`kind = tagged_with`), not a dedicated join table — see
+Relationship below.
 
 ### Relationship
 
@@ -100,12 +106,18 @@ Generic edge between entities.
 | from_type | string (enum) | no | |
 | to_id | Entity id (FK) | no | |
 | to_type | string (enum) | no | |
-| kind | string (enum) | no | e.g. presents, authored, illustrates, sponsors |
+| kind | string (enum) | no | presents, authored, illustrates, sponsors, member_of, reviews, tagged_with, captured_by |
 
 Cardinality is many-to-many by default (a Person can present many
 Sessions; a Session can have many presenting People). Specific relation
 kinds may constrain this (e.g. Content.author is effectively one-to-many
 from Person, enforced at the application layer, not the schema).
+
+`tagged_with` (Asset -> Tag) and `captured_by` (Asset -> Person |
+Organisation) both go through this same generic mechanism rather than a
+dedicated table each — `captured_by` is deliberately separate from
+`Asset.created_by` (the audit field for who performed the upload, not
+necessarily who took the photo).
 
 ## Cross-cutting Tables
 

@@ -1,0 +1,11 @@
+-- Adds tagged_with and captured_by to relationship.kind (see
+-- architecture/Studio Data Model.md, Relationship section) — kind is a
+-- free-form TEXT column already, so no column change is needed for that.
+--
+-- entity_tag was a dedicated polymorphic tag-membership table added in the
+-- initial scaffold (0001) but never referenced by any code. Now that Asset
+-- -> Tag membership goes through the generic `relationship` table (kind =
+-- 'tagged_with', consistent with "relationships are first-class" per
+-- Studio Domain Model.md), entity_tag would just be a second, unused
+-- mechanism for the same fact. Drop it rather than carry a duplicate.
+DROP TABLE entity_tag;

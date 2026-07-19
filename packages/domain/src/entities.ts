@@ -55,7 +55,7 @@ export type StudioAccessRole =
 export interface Organisation extends EntityBase {
   type: "organisation";
   name: string;
-  kind: "sponsor" | "partner" | "venue" | "employer" | "media";
+  kind: "sponsor" | "partner" | "venue" | "employer" | "media" | "organiser";
 }
 
 export interface Event extends EntityBase {
@@ -147,7 +147,19 @@ export type RelationshipKind =
   | "illustrates"
   | "sponsors"
   | "member_of"
-  | "reviews";
+  | "reviews"
+  // Asset -> Tag. Generic tagging, e.g. a folder name from a bulk import
+  // becoming a Tag (create-if-missing). Supersedes the unused entity_tag
+  // table (migrations/0007) — one edge mechanism, not two, per
+  // "relationships are first-class" (Studio Domain Model.md).
+  | "tagged_with"
+  // Asset -> Person | Organisation. Photo attribution/credit specifically —
+  // deliberately separate from Asset.created_by, which is the audit field
+  // for who performed the upload action, not necessarily who took the
+  // photo. Every asset should have at least one captured_by before
+  // publish; see the upload-attribution-prompt and Historical Import work
+  // for how each import path resolves it.
+  | "captured_by";
 
 export interface Relationship {
   id: string;
