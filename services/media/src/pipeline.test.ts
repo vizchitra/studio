@@ -918,3 +918,96 @@ describe("face_clustering step", () => {
     expect(inputs.image).toBe(`data:image/png;base64,${btoa(binary)}`);
   });
 });
+
+describe("Historical Import mode (issue #46)", () => {
+  let ctx: PipelineContext;
+
+  async function seedHistoricalAsset(): Promise<PipelineContext> {
+    const assetId = `test-asset-${crypto.randomUUID()}`;
+    const personId = `test-person-${crypto.randomUUID()}`;
+    const batchId = `test-batch-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+      ).bind(personId, "Test Person", now, now),
+      env.DB.prepare(
+        `INSERT INTO import_batch (id, mode, filename_template, created_at, created_by)
+           VALUES (?, 'historical', '{date}_{code}_{n}', ?, ?)`,
+      ).bind(batchId, now, personId),
+      env.DB.prepare(
+        `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by, import_batch_id)
+           VALUES (?, 'draft', 'photo', ?, ?, ?, ?, ?, ?)`,
+      ).bind(assetId, "test.jpg", now, now, personId, personId, batchId),
+    ]);
+    return {
+      assetId,
+      db: env.DB,
+      bucket: env.MEDIA_BUCKET,
+      queue: env.MEDIA_QUEUE,
+      ai: { run: vi.fn() } as unknown as Ai,
+    };
+  }
+
+  beforeEach(async () => {
+    ctx = await seedHistoricalAsset();
+  });
+
+  it.each([
+    "reference_person_matching",
+    "face_clustering",
+    "duplicate_detection",
+    "quality_scoring",
+  ] as const)("skips %s for an asset from a historical import batch", async (step) => {
+    await runPipelineStep(step, ctx);
+
+    const run = await ctx.db
+      .prepare(`SELECT status, output FROM asset_pipeline_run WHERE asset_id = ? AND step = ?`)
+      .bind(ctx.assetId, step)
+      .first<{ status: string; output: string }>();
+    expect(run?.status).toBe("done");
+    expect(JSON.parse(run?.output ?? "{}")).toMatchObject({
+      skipped: true,
+      reason: expect.stringContaining("historical"),
+    });
+
+    if (step === "face_clustering") {
+      expect(ctx.ai!.run).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does not skip those steps for an asset with no import batch (single-upload path)", async () => {
+    const assetId = `test-asset-${crypto.randomUUID()}`;
+    const personId = `test-person-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+      ).bind(personId, "Test Person", now, now),
+      env.DB.prepare(
+        `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
+           VALUES (?, 'draft', 'photo', ?, ?, ?, ?, ?)`,
+      ).bind(assetId, "test.jpg", now, now, personId, personId),
+    ]);
+    const nonHistoricalCtx: PipelineContext = {
+      assetId,
+      db: env.DB,
+      bucket: env.MEDIA_BUCKET,
+      queue: env.MEDIA_QUEUE,
+      ai: { run: vi.fn() } as unknown as Ai,
+    };
+
+    // No asset_version at all — reference_person_matching has no file
+    // dependency and just no-ops; the others throw on a missing 'original'
+    // rather than silently skipping, proving the historical-mode guard
+    // didn't fire.
+    await expect(PIPELINE.duplicate_detection(nonHistoricalCtx)).rejects.toThrow(
+      "No 'original' asset_version found",
+    );
+    await expect(PIPELINE.quality_scoring(nonHistoricalCtx)).rejects.toThrow(
+      "No 'original' asset_version found",
+    );
+    const referenceOutput = await PIPELINE.reference_person_matching(nonHistoricalCtx);
+    expect(referenceOutput).toEqual({ done: true });
+  });
+});

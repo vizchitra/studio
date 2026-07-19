@@ -89,6 +89,22 @@ metadata and no `captured_by`, which the existing publish-time
 attribution check (issue #44) already leaves unpublishable until someone
 fixes it by hand in the review UI.
 
+`mode = historical` (issue #46) means "final assets only, already
+decided" — `reference_person_matching`, `face_clustering`,
+`duplicate_detection` and `quality_scoring` are skipped for assets in
+such a batch (they exist to help decide *what to keep*, which doesn't
+apply to already-final assets), while `exif_extraction`,
+`preview_generation` and `search_indexing` still run.
+`mode = review` runs every step as normal. Either mode still requires a
+resolved `captured_by` before publish — Historical Import doesn't skip
+that requirement, it just satisfies it automatically via the
+code-resolves-or-VizChitra-org fallback above. Publish is reached via an
+explicit "Publish batch" admin action on `/admin/bulk-import` (reusing
+the review UI's approve-action permission gating, not an automatic
+chain), not automatically once processing finishes — so nothing
+publishes without human confirmation, per CLAUDE.md, even at the batch
+level.
+
 ### AssetVersion
 
 Represents a concrete file. Types: - original - review - edited - web -
