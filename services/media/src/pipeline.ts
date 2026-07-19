@@ -1,4 +1,4 @@
-import { parse as parseExif } from "exifr";
+import { parse as parseExif, thumbnail as extractExifThumbnail } from "exifr";
 import { PhotonImage, SamplingFilter, grayscale, laplace, resize } from "@cf-wasm/photon/workerd";
 import { ulid, sha256Hex, MEDIA_PIPELINE_STEPS, type MediaPipelineStep } from "@studio/shared";
 
@@ -63,6 +63,27 @@ async function importStep(_ctx: PipelineContext) {
   return { done: true };
 }
 
+// RAW originals (issue #47): @cf-wasm/photon decodes standard image
+// formats, not camera RAW — demosaicing the sensor data isn't realistic
+// inside a Worker's CPU/memory budget anyway. Every major RAW format is
+// TIFF/EXIF-based and embeds a small preview/thumbnail (IFD1, the same one
+// a camera's LCD shows) — exifr's thumbnail() extracts that for
+// previewGenerationStep, fed through the same photon-based derivative
+// pipeline unchanged. This is deliberately the standard EXIF thumbnail,
+// not a manufacturer-specific larger "preview" IFD some formats also
+// embed (e.g. Canon CR2's IFD0 preview) — parsing each vendor's
+// proprietary layout is a bigger project than this issue's scope; revisit
+// if thumbnail-quality derivatives prove insufficient in practice.
+// exifExtractionStep also uses this: RAW files are TIFF/EXIF containers
+// themselves, exifr reads them directly, no decode needed.
+const RAW_EXTENSIONS = new Set([".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2"]);
+
+export function isRawExtension(r2Key: string): boolean {
+  const dot = r2Key.lastIndexOf(".");
+  if (dot === -1) return false;
+  return RAW_EXTENSIONS.has(r2Key.slice(dot).toLowerCase());
+}
+
 async function exifExtractionStep(ctx: PipelineContext) {
   const version = await ctx.db
     .prepare(
@@ -75,7 +96,11 @@ async function exifExtractionStep(ctx: PipelineContext) {
     throw new Error(`No 'original' asset_version found for asset ${ctx.assetId}`);
   }
 
-  if (!version.mime_type.startsWith("image/")) {
+  // RAW files are TIFF/EXIF containers themselves — exifr reads them
+  // directly, no decode step needed — but rarely carry an image/* mime
+  // type from the upload client, so the extension check (also used by
+  // previewGenerationStep, #47) is what actually lets them through here.
+  if (!isRawExtension(version.r2_key) && !version.mime_type.startsWith("image/")) {
     return { skipped: true, reason: `mime_type ${version.mime_type} is not an image` };
   }
 
@@ -131,7 +156,12 @@ async function previewGenerationStep(ctx: PipelineContext) {
     throw new Error(`No 'original' asset_version found for asset ${ctx.assetId}`);
   }
 
-  if (!version.mime_type.startsWith("image/")) {
+  const isRaw = isRawExtension(version.r2_key);
+  // RAW originals rarely get a proper image/* mime type from the upload
+  // client (usually application/octet-stream) — the extension check above
+  // is what actually identifies them, so this mime_type gate only applies
+  // to non-RAW files.
+  if (!isRaw && !version.mime_type.startsWith("image/")) {
     return { skipped: true, reason: `mime_type ${version.mime_type} is not an image` };
   }
 
@@ -146,7 +176,21 @@ async function previewGenerationStep(ctx: PipelineContext) {
   if (!object) {
     throw new Error(`R2 object ${version.r2_key} not found for asset ${ctx.assetId}`);
   }
-  const sourceBytes = new Uint8Array(await object.arrayBuffer());
+  const originalBytes = new Uint8Array(await object.arrayBuffer());
+
+  let sourceBytes = originalBytes;
+  if (isRaw) {
+    const extracted = await extractExifThumbnail(originalBytes);
+    if (!extracted) {
+      // Explicit failure per issue #47, not a silent skip — this needs a
+      // human to notice and supply a derivative some other way, not to be
+      // quietly invisible in the review UI.
+      throw new Error(
+        `No embedded preview/thumbnail found in RAW file ${version.r2_key} — cannot generate derivatives`,
+      );
+    }
+    sourceBytes = new Uint8Array(extracted) as Uint8Array<ArrayBuffer>;
+  }
 
   let sourceImage: PhotonImage;
   try {

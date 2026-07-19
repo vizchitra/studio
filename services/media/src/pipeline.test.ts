@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PhotonImage } from "@cf-wasm/photon/workerd";
-import { PIPELINE, runPipelineStep, type PipelineContext } from "./pipeline";
+import { PIPELINE, isRawExtension, runPipelineStep, type PipelineContext } from "./pipeline";
 
 // D1 storage isn't reset between `it()` blocks in the same file (only
 // between test files). dHash only encodes *relative* brightness between
@@ -1009,5 +1009,172 @@ describe("Historical Import mode (issue #46)", () => {
     );
     const referenceOutput = await PIPELINE.reference_person_matching(nonHistoricalCtx);
     expect(referenceOutput).toEqual({ done: true });
+  });
+});
+
+describe("RAW originals (issue #47)", () => {
+  let ctx: PipelineContext;
+
+  // A real, decodable JPEG — stands in for the embedded EXIF thumbnail a
+  // real RAW file carries.
+  function makeEmbeddedJpeg(): Uint8Array {
+    const image = new PhotonImage(new Uint8Array(16 * 16 * 4).fill(128), 16, 16);
+    try {
+      return image.get_bytes_jpeg(70);
+    } finally {
+      image.free();
+    }
+  }
+
+  // Hand-builds a real, valid, minimal TIFF/EXIF byte structure — no
+  // mocking of exifr. RAW files are TIFF-based, so a real (if
+  // content-free) TIFF is a faithful stand-in: IFD0 with zero entries,
+  // optionally followed by an IFD1 carrying the three standard thumbnail
+  // tags (Compression, ThumbnailOffset, ThumbnailLength) plus the embedded
+  // JPEG bytes themselves — exactly the structure exifr.thumbnail() reads.
+  function makeMinimalTiff(embeddedJpeg?: Uint8Array): Uint8Array {
+    if (!embeddedJpeg) {
+      // IFD0 (0 entries) with no IFD1 at all.
+      const buf = new Uint8Array(8 + 2 + 4);
+      const view = new DataView(buf.buffer);
+      buf[0] = 0x49;
+      buf[1] = 0x49; // "II" little-endian
+      view.setUint16(2, 42, true);
+      view.setUint32(4, 8, true); // offset to IFD0
+      view.setUint16(8, 0, true); // IFD0: 0 entries
+      view.setUint32(10, 0, true); // no next IFD
+      return buf;
+    }
+
+    const ifd1EntryCount = 3;
+    const jpegOffset = 8 + 6 + 2 + ifd1EntryCount * 12 + 4;
+    const buf = new Uint8Array(jpegOffset + embeddedJpeg.length);
+    const view = new DataView(buf.buffer);
+    buf[0] = 0x49;
+    buf[1] = 0x49;
+    view.setUint16(2, 42, true);
+    view.setUint32(4, 8, true);
+
+    view.setUint16(8, 0, true); // IFD0: 0 entries
+    view.setUint32(10, 14, true); // IFD0 -> IFD1 at offset 14
+
+    let off = 14;
+    view.setUint16(off, ifd1EntryCount, true);
+    off += 2;
+    // Compression = 6 (JPEG)
+    view.setUint16(off, 0x0103, true);
+    view.setUint16(off + 2, 3, true);
+    view.setUint32(off + 4, 1, true);
+    view.setUint16(off + 8, 6, true);
+    off += 12;
+    // ThumbnailOffset (JPEGInterchangeFormat)
+    view.setUint16(off, 0x0201, true);
+    view.setUint16(off + 2, 4, true);
+    view.setUint32(off + 4, 1, true);
+    view.setUint32(off + 8, jpegOffset, true);
+    off += 12;
+    // ThumbnailLength (JPEGInterchangeFormatLength)
+    view.setUint16(off, 0x0202, true);
+    view.setUint16(off + 2, 4, true);
+    view.setUint32(off + 4, 1, true);
+    view.setUint32(off + 8, embeddedJpeg.length, true);
+    off += 12;
+    view.setUint32(off, 0, true); // no next IFD
+
+    buf.set(embeddedJpeg, jpegOffset);
+    return buf;
+  }
+
+  async function seedRawAsset(filename: string, bytes: Uint8Array): Promise<PipelineContext> {
+    const assetId = `test-asset-${crypto.randomUUID()}`;
+    const personId = `test-person-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const r2Key = `originals/${assetId}/${filename}`;
+    await env.MEDIA_BUCKET.put(r2Key, bytes);
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO person (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+      ).bind(personId, "Test Person", now, now),
+      env.DB.prepare(
+        `INSERT INTO asset (id, status, kind, title, created_at, updated_at, created_by, updated_by)
+           VALUES (?, 'draft', 'photo', ?, ?, ?, ?, ?)`,
+      ).bind(assetId, filename, now, now, personId, personId),
+      env.DB.prepare(
+        `INSERT INTO asset_version (id, asset_id, kind, mime_type, r2_key, size_bytes, checksum, created_at)
+           VALUES (?, ?, 'original', 'application/octet-stream', ?, ?, 'deadbeef', ?)`,
+      ).bind(`test-version-${crypto.randomUUID()}`, assetId, r2Key, bytes.byteLength, now),
+    ]);
+    return { assetId, db: env.DB, bucket: env.MEDIA_BUCKET, queue: env.MEDIA_QUEUE };
+  }
+
+  it.each([".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2", ".CR2"])(
+    "recognizes %s as a RAW extension",
+    (ext) => {
+      expect(isRawExtension(`originals/asset-id/photo${ext}`)).toBe(true);
+    },
+  );
+
+  it("does not treat other extensions as RAW", () => {
+    expect(isRawExtension("originals/asset-id/photo.jpg")).toBe(false);
+    expect(isRawExtension("originals/asset-id/doc.pdf")).toBe(false);
+    expect(isRawExtension("originals/asset-id/no-extension")).toBe(false);
+  });
+
+  it("generates web/thumbnail derivatives from a RAW file's embedded preview", async () => {
+    ctx = await seedRawAsset("photo.cr2", makeMinimalTiff(makeEmbeddedJpeg()));
+
+    await runPipelineStep("preview_generation", ctx);
+
+    const run = await ctx.db
+      .prepare(
+        `SELECT status, output FROM asset_pipeline_run WHERE asset_id = ? AND step = 'preview_generation'`,
+      )
+      .bind(ctx.assetId)
+      .first<{ status: string; output: string }>();
+    expect(run?.status).toBe("done");
+    expect(JSON.parse(run?.output ?? "{}")).toMatchObject({ done: true });
+
+    const versions = await ctx.db
+      .prepare(`SELECT kind FROM asset_version WHERE asset_id = ? ORDER BY kind`)
+      .bind(ctx.assetId)
+      .all<{ kind: string }>();
+    expect(versions.results.map((v) => v.kind).sort()).toEqual(["original", "thumbnail", "web"]);
+  });
+
+  it("fails clearly (not a silent skip) when the RAW file has no embedded preview", async () => {
+    ctx = await seedRawAsset("photo.nef", makeMinimalTiff());
+
+    await expect(runPipelineStep("preview_generation", ctx)).rejects.toThrow(
+      "No embedded preview/thumbnail found",
+    );
+
+    const run = await ctx.db
+      .prepare(
+        `SELECT status, error FROM asset_pipeline_run WHERE asset_id = ? AND step = 'preview_generation'`,
+      )
+      .bind(ctx.assetId)
+      .first<{ status: string; error: string }>();
+    expect(run?.status).toBe("failed");
+    expect(run?.error).toContain("No embedded preview/thumbnail found");
+  });
+
+  it("lets exif_extraction attempt a RAW file instead of skipping it as 'not an image'", async () => {
+    ctx = await seedRawAsset("photo.arw", makeMinimalTiff());
+
+    await runPipelineStep("exif_extraction", ctx);
+
+    const run = await ctx.db
+      .prepare(
+        `SELECT status, output FROM asset_pipeline_run WHERE asset_id = ? AND step = 'exif_extraction'`,
+      )
+      .bind(ctx.assetId)
+      .first<{ status: string; output: string }>();
+    expect(run?.status).toBe("done");
+    // A content-free IFD0 legitimately has no metadata to record — the
+    // point here is *why*: it must not be `skipped` at all, since that
+    // would mean the old mime_type-based gate (which used to reject every
+    // RAW file outright) fired instead of a real parse attempt.
+    const output = JSON.parse(run?.output ?? "{}");
+    expect(output.skipped).not.toBe(true);
   });
 });

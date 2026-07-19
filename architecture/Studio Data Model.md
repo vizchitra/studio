@@ -110,6 +110,21 @@ level.
 Represents a concrete file. Types: - original - review - edited - web -
 social - thumbnail
 
+RAW originals (CR2/CR3/NEF/ARW/DNG/RAF/ORF/RW2, detected by file
+extension — RAW uploads rarely carry an `image/*` mime type) go through
+`preview_generation` differently than standard formats: rather than a
+full RAW demosaic (not realistic inside a Worker's CPU/memory budget),
+the step extracts the small EXIF thumbnail (IFD1) every major RAW format
+already embeds (`exifr`'s `thumbnail()`), then feeds that through the
+same photon-based web/social/thumbnail derivative pipeline unchanged.
+This is the standard EXIF thumbnail, not a manufacturer-specific larger
+"preview" IFD some formats also embed. If a RAW file has no usable
+embedded thumbnail, the run fails clearly
+(`asset_pipeline_run.status = 'failed'`, a real error message) rather
+than silently producing no derivatives. `exif_extraction` also treats
+RAW files as regular EXIF containers (they are, being TIFF-based) rather
+than skipping them as "not an image".
+
 ### FaceDetection
 
 A detected face bounding box on an Asset, computed by the
