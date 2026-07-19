@@ -9,7 +9,7 @@
 <div class="app-shell">
   <Nav user={data.user} />
   <div class="app-body">
-    <SidePanel canReprocess={data.canReprocess} />
+    <SidePanel canReprocess={data.canReprocess} canUpload={data.canUpload} />
     <main class="app-main">
       <slot />
     </main>

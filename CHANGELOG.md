@@ -6,6 +6,29 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Zip-based bulk import (closes #45): new admin page at
+  `/admin/bulk-import` (gated by `canUpload`, not `canReprocess` — this
+  is for anyone who can upload, not just administrators; new `SidePanel`
+  link, new `canUpload` field on the root `+layout.server.ts`) where an
+  admin picks an Import Mode (Historical or Review), a configurable
+  filename-parsing template (default `{date}_{code}_{n}`), and uploads a
+  `.zip` preserving folder structure. New `POST /assets/bulk-import` in
+  `services/media` (gated the same as single-file upload) unzips
+  (`fflate`), and per entry: the top-level folder becomes a `tagged_with`
+  Tag; the filename is matched against the template
+  (`services/media/src/import-template.ts`, unit tested) to derive an
+  EXIF-fallback date and a `{code}` token looked up in the new
+  `services/media/photographer-codes.json` to resolve `captured_by`. A
+  resolved photographer code always wins over the VizChitra-org fallback,
+  in either import mode — confirmed this reading with @amitkaps since the
+  issue text could be parsed either way. Non-matching filenames still
+  import without derived metadata; the existing publish-time attribution
+  check (#44) leaves them unpublishable until fixed by hand. New
+  `import_batch` table (`migrations/0008_import_batch.sql`) records each
+  run's mode + template for traceability; `asset.import_batch_id`
+  (nullable FK) traces an asset back to the batch that created it. Mode
+  is stored but doesn't yet change pipeline behavior — skipping steps for
+  Historical Import is #46.
 - Attribution + context-tag prompt on direct uploads (closes #44): the
   `/` upload form now asks "Who took this photo?" (required, defaults to
   the signed-in uploader's own name but is freely editable — the

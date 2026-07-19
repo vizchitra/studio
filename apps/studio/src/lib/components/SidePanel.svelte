@@ -1,10 +1,14 @@
 <script lang="ts">
   export let canReprocess = false;
+  export let canUpload = false;
 </script>
 
 <nav class="side-panel" aria-label="Primary">
   <ul>
     <li><a href="/assets">Assets</a></li>
+    {#if canUpload}
+      <li><a href="/admin/bulk-import">Bulk Import</a></li>
+    {/if}
     {#if canReprocess}
       <li><a href="/admin/pipeline-validation">Pipeline Validation</a></li>
     {/if}

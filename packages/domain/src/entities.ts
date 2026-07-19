@@ -90,6 +90,27 @@ export interface Asset extends EntityBase {
   perceptual_hash?: string;
   quality_score?: number;
   quality_flags?: string[];
+  // Singular reference (an asset belongs to at most one import batch, if
+  // any) — a dedicated nullable FK per CLAUDE.md's carve-out, not the
+  // many-to-many `relationship` table.
+  import_batch_id?: string;
+}
+
+/**
+ * A traceable record of one zip-based bulk import run (issue #45) — the
+ * filename/folder parsing template is configurable per batch rather than
+ * hardcoded, since conventions differ by photographer and year; storing it
+ * here means a past batch's parsing choices stay inspectable after the
+ * convention moves on.
+ */
+export interface ImportBatch {
+  id: string;
+  mode: "historical" | "review";
+  // e.g. "{date}_{code}_{n}" — see services/media/src/import-template.ts
+  // for the recognized token set.
+  filename_template: string;
+  created_at: string;
+  created_by: string; // Person id
 }
 
 export type AssetVersionKind = "original" | "review" | "edited" | "web" | "social" | "thumbnail";

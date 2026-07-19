@@ -163,6 +163,17 @@ node scripts/seed-vizchitra-organisation.ts --remote   # live Cloudflare D1
 
 Idempotent (checks for slug `vizchitra` first).
 
+### Photographer codes (issue #45)
+
+`services/media/photographer-codes.json` maps a filename code token
+(e.g. `AK`) to a `person_id`, used by `/admin/bulk-import` to resolve
+`captured_by` for bulk-imported photos. `person_id` is a database row id,
+so this file is environment-specific — the checked-in copy has a single
+placeholder entry. After seeding real photographer `person` rows, replace
+it with real `{code, person_id}` entries (`SELECT id FROM person WHERE
+name = '...'` to find an id). A code that doesn't match any entry falls
+back to VizChitra-org attribution rather than failing the import.
+
 ## 7. Deploy (manual, first time)
 
 ```

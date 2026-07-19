@@ -1,0 +1,7 @@
+[
+  {
+    "code": "EXAMPLE",
+    "person_id": "REPLACE_WITH_REAL_PERSON_ULID",
+    "note": "Placeholder — person_id is a database row id, so it's specific to whichever environment (local/prod) this file is deployed against. Update this list with real codes and the matching Person ULIDs (SELECT id FROM person WHERE name = '...') whenever a photographer's code changes or a new one is added. A code that doesn't match any entry here just falls back to VizChitra-org attribution (see architecture/Studio Data Model.md, ImportBatch section) rather than failing the import."
+  }
+]
