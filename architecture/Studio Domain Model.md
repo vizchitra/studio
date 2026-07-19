@@ -95,6 +95,8 @@ Examples:
 -   Venues
 -   Employers
 -   Media organisations
+-   The organiser itself (VizChitra) — seeded once as the `captured_by`
+    target for official/final photos with no individual credit
 
 ------------------------------------------------------------------------
 
@@ -219,6 +221,10 @@ Examples:
 -   Person authored Content
 -   Asset illustrates Content
 -   Organisation sponsors Event
+-   Asset tagged_with Tag — generic tagging (e.g. a bulk import folder
+    name becoming a Tag), not a dedicated join table
+-   Asset captured_by Person or Organisation — photo attribution/credit,
+    distinct from Asset.created_by (who performed the upload)
 
 Treat relationships as first-class objects to support future querying
 and visualization.

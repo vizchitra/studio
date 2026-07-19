@@ -149,6 +149,20 @@ not start pipeline processing (no way to send a Queue message from a CLI
 script) — use the `/assets` review UI's admin Reprocess action to resume
 a seeded asset at `import`.
 
+### VizChitra organisation seed (issue #43)
+
+`captured_by` relationships need a target for official/final photos with
+no individual photographer credit — a single `organisation` row (`kind =
+'organiser'`) representing VizChitra itself. Seed it once per environment:
+
+```
+cd services/media
+node scripts/seed-vizchitra-organisation.ts            # local
+node scripts/seed-vizchitra-organisation.ts --remote   # live Cloudflare D1
+```
+
+Idempotent (checks for slug `vizchitra` first).
+
 ## 7. Deploy (manual, first time)
 
 ```
