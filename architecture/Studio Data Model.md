@@ -59,7 +59,35 @@ assets predating this step. `quality_score` (real, nullable, 0-100) and
 `quality_flags` (JSON string array, nullable, e.g. `["blurry",
 "underexposed"]`) are basic blur/exposure heuristics computed by the
 quality_scoring pipeline step for editorial triage — same nullability
-caveats as `perceptual_hash`.
+caveats as `perceptual_hash`. `import_batch_id` (nullable FK to
+ImportBatch) traces an asset back to the bulk import run that created it,
+if any — null for assets created via the single-file upload path.
+
+### ImportBatch
+
+A traceable record of one zip-based bulk import run (issue #45).
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| id | UUID/ULID | no | |
+| mode | string (enum) | no | historical \| review — see Import Modes, Media Architecture.md |
+| filename_template | string | no | e.g. `{date}_{code}_{n}` — configurable per batch, not hardcoded, since conventions differ by photographer and year |
+| created_at | timestamp | no | |
+| created_by | Person id (FK) | no | |
+
+Per entry in the zip: the top-level folder name becomes a `tagged_with`
+Tag (create-if-missing). The filename is matched against
+`filename_template`'s token set (`{date}`, `{code}`, `{n}`) — a matched
+`{date}` token is an EXIF fallback (used only if EXIF is missing/stripped);
+a matched `{code}` token is looked up in
+`services/media/photographer-codes.json` to resolve a `captured_by`
+Person. If the code doesn't resolve to a known person, `captured_by`
+defaults to the VizChitra Organisation (see Organisation section) — a
+resolved code always wins over that default, in either import mode.
+Non-matching filenames still import; they simply carry no derived
+metadata and no `captured_by`, which the existing publish-time
+attribution check (issue #44) already leaves unpublishable until someone
+fixes it by hand in the review UI.
 
 ### AssetVersion
 
