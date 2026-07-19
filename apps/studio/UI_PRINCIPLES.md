@@ -128,6 +128,18 @@ Grounded in what's actually built (`assets/+page.svelte`,
   (wrapping inline groups) — thin flex wrappers over `--space-flow-*`
   values, for the ad hoc `flex-column`/`flex-wrap` rules that used to be
   hand-rolled per page (`.asset-meta`, `.asset-actions`).
+- **Asset detail page** — `src/routes/assets/[id]/` (#56) — the largest
+  available derivative, full metadata (EXIF, quality, tags, captured_by),
+  the complete `asset_version` list, and full `asset_pipeline_run`
+  history. Approve/Reject/Reprocess live here now, not on the grid card —
+  a review decision shouldn't be made from a thumbnail. The grid card's
+  thumbnail and title are a real link (`/assets/{id}`), per the no-Modal
+  principle below. Approve/Reject/Reprocess post to the existing actions
+  on `assets/+page.server.ts` (`/assets?/approve` etc.) rather than
+  duplicating the permission/attribution logic — a `redirectTo` hidden
+  field (same pattern the reprocess action already used for
+  pipeline-validation) sends the user back to the detail page instead of
+  the grid.
 - **Nav + SidePanel app shell** — `src/routes/+layout.svelte` composes
   `<Nav>` (top bar: hamburger toggle, brand, signed-in user) and
   `<SidePanel>` (left, primary nav links, admin-only links gated by
@@ -161,9 +173,9 @@ are new design, not extraction — nothing rendered a global nav before).
   actually block something. Not built speculatively ahead of a consumer.
 - `Modal` — deliberately not building. Nothing built so far uses one —
   face-confirm is inline on the card — and a modal cuts against the
-  "AI output stays inline, not tucked away" principle. The one plausible
-  future case is a full-resolution image lightbox; don't build it
-  speculatively.
+  "AI output stays inline, not tucked away" principle. The full-resolution
+  image case landed as a real URL instead (`/assets/[id]`, #56), per "no
+  Modal by default" — not a lightbox.
 
 ## Open questions
 

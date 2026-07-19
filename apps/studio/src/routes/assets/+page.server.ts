@@ -109,7 +109,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
     reprocessEnabled = canReprocess(role);
   }
 
-  return { assets: assetsWithFaces, reprocessEnabled, pipelineSteps: MEDIA_PIPELINE_STEPS };
+  return { assets: assetsWithFaces, reprocessEnabled };
 };
 
 async function setStatus(
@@ -129,6 +129,7 @@ export const actions: Actions = {
     if (!locals.user) return fail(401, { error: "Not signed in" });
     const form = await request.formData();
     const assetId = form.get("assetId");
+    const redirectTo = form.get("redirectTo");
     if (typeof assetId !== "string") return fail(400, { error: "Missing assetId" });
 
     const db = platform?.env.DB;
@@ -149,13 +150,17 @@ export const actions: Actions = {
     // skipped it (asset was still 'draft') — re-send it now that the status
     // check will pass, see services/media/src/pipeline.ts publishStep.
     await queue.send({ assetId, step: "publish" });
-    redirect(303, "/assets");
+    redirect(
+      303,
+      typeof redirectTo === "string" && redirectTo.startsWith("/") ? redirectTo : "/assets",
+    );
   },
 
   reject: async ({ request, platform, locals }) => {
     if (!locals.user) return fail(401, { error: "Not signed in" });
     const form = await request.formData();
     const assetId = form.get("assetId");
+    const redirectTo = form.get("redirectTo");
     if (typeof assetId !== "string") return fail(400, { error: "Missing assetId" });
 
     // No dedicated "rejected" state in the entity status enum
@@ -167,7 +172,10 @@ export const actions: Actions = {
     const role = await getEffectiveRole(db, personId, "asset", assetId);
     if (!canReview(role)) return fail(403, { error: "Insufficient permissions to reject" });
     await setStatus(db, assetId, "archived", personId);
-    redirect(303, "/assets");
+    redirect(
+      303,
+      typeof redirectTo === "string" && redirectTo.startsWith("/") ? redirectTo : "/assets",
+    );
   },
 
   // Re-enqueues an existing asset at a chosen pipeline step (closes #32) —
