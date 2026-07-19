@@ -6,6 +6,25 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- RAW originals in `preview_generation` (closes #47): CR2/CR3/NEF/ARW/
+  DNG/RAF/ORF/RW2 files (detected by extension, since RAW uploads rarely
+  carry an `image/*` mime type — new `isRawExtension()` in
+  `services/media/src/pipeline.ts`) now get real derivatives instead of
+  being silently skipped as "not an image". Rather than a full RAW
+  demosaic (not realistic in a Worker's CPU/memory budget), the step
+  extracts the small embedded EXIF thumbnail every major RAW format
+  already carries (`exifr`'s `thumbnail()`) and feeds it through the
+  existing photon-based web/social/thumbnail pipeline unchanged. A RAW
+  file with no usable embedded thumbnail fails the run clearly
+  (`asset_pipeline_run.status = 'failed'`, a real error) rather than
+  silently producing nothing, per the issue's explicit requirement.
+  `exif_extraction` gets the same extension-based fix, since RAW files
+  are TIFF/EXIF containers exifr already reads directly — they were
+  previously skipped there too by the same mime_type gate. Tests build a
+  real minimal TIFF byte structure (with and without an embedded
+  thumbnail) rather than mocking `exifr`, since `vi.mock` doesn't
+  reliably intercept module imports reached through
+  `@cloudflare/vitest-pool-workers`'s bundled workerd runtime.
 - Historical Import mode (closes #46): assets from a `mode='historical'`
   import batch (#45) now skip `reference_person_matching`,
   `face_clustering`, `duplicate_detection` and `quality_scoring` in the
