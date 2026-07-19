@@ -35,6 +35,24 @@ export interface PipelineContext {
 
 export type PipelineStepFn = (ctx: PipelineContext) => Promise<Record<string, unknown>>;
 
+// Historical Import (issue #46): final assets only, already decided —
+// reference_person_matching/face_clustering/duplicate_detection/
+// quality_scoring exist to help decide *what to keep*, which doesn't apply
+// here. exif_extraction/preview_generation/search_indexing still run.
+// Assets from the single-upload path have no import_batch_id and are
+// never historical.
+async function isHistoricalImport(ctx: PipelineContext): Promise<boolean> {
+  const row = await ctx.db
+    .prepare(
+      `SELECT ib.mode FROM asset a
+       JOIN import_batch ib ON ib.id = a.import_batch_id
+       WHERE a.id = ?`,
+    )
+    .bind(ctx.assetId)
+    .first<{ mode: string }>();
+  return row?.mode === "historical";
+}
+
 // Each step is a stub. Fill in real logic module by module — the contract
 // (idempotent, retryable, returns a JSON-serializable result) must not change.
 // Canonical order/source: architecture/Studio Architecture RFC v1.md, Event Processing.
@@ -205,7 +223,10 @@ async function sessionInferenceStep(_ctx: PipelineContext) {
   return { done: true };
 }
 
-async function referencePersonMatchingStep(_ctx: PipelineContext) {
+async function referencePersonMatchingStep(ctx: PipelineContext) {
+  if (await isHistoricalImport(ctx)) {
+    return { skipped: true, reason: "historical import — already-decided final" };
+  }
   // TODO: compare detected faces against known Person reference photos.
   return { done: true };
 }
@@ -249,6 +270,9 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 async function faceClusteringStep(ctx: PipelineContext) {
+  if (await isHistoricalImport(ctx)) {
+    return { skipped: true, reason: "historical import — already-decided final" };
+  }
   if (!ctx.ai) {
     throw new Error("No AI binding available for face_clustering");
   }
@@ -372,6 +396,9 @@ function hammingDistance(hexA: string, hexB: string): number {
 const DUPLICATE_HAMMING_THRESHOLD = 10;
 
 async function duplicateDetectionStep(ctx: PipelineContext) {
+  if (await isHistoricalImport(ctx)) {
+    return { skipped: true, reason: "historical import — already-decided final" };
+  }
   const version = await ctx.db
     .prepare(
       `SELECT id, r2_key, mime_type, size_bytes FROM asset_version WHERE asset_id = ? AND kind = 'original'`,
@@ -540,6 +567,9 @@ function computeQualityMetrics(image: PhotonImage): {
 }
 
 async function qualityScoringStep(ctx: PipelineContext) {
+  if (await isHistoricalImport(ctx)) {
+    return { skipped: true, reason: "historical import — already-decided final" };
+  }
   const version = await ctx.db
     .prepare(
       `SELECT id, r2_key, mime_type, size_bytes FROM asset_version WHERE asset_id = ? AND kind = 'original'`,

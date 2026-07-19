@@ -6,6 +6,23 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Historical Import mode (closes #46): assets from a `mode='historical'`
+  import batch (#45) now skip `reference_person_matching`,
+  `face_clustering`, `duplicate_detection` and `quality_scoring` in the
+  pipeline (`services/media/src/pipeline.ts`'s `isHistoricalImport`
+  guard, checked at the top of each of those four steps, mirroring the
+  existing `{skipped, reason}` pattern `publishStep` already used) —
+  those steps help decide what to keep, which doesn't apply to
+  already-decided finals. `exif_extraction`/`preview_generation`/
+  `search_indexing` still run. Publish still requires a resolved
+  `captured_by` per asset either way; Historical Import doesn't skip
+  that, it just satisfies it automatically via #45's VizChitra-org
+  fallback. New "Publish batch" action on `/admin/bulk-import`
+  (`canReview`-gated, reusing `/assets`' approve-action permission
+  pattern per #30) approves + enqueues publish for every asset in a
+  batch that has a resolved credit, skipping and reporting any that
+  don't — an explicit admin click, not an automatic chain, so nothing
+  publishes without human confirmation even at the batch level.
 - Zip-based bulk import (closes #45): new admin page at
   `/admin/bulk-import` (gated by `canUpload`, not `canReprocess` — this
   is for anyone who can upload, not just administrators; new `SidePanel`

@@ -43,10 +43,27 @@
     <Notice kind="error">{form.error}</Notice>
   {/if}
 
+  {#if form?.batchPublished}
+    <Notice kind="success">
+      Batch {form.batchId}: published {form.published} asset(s){form.needsAttribution
+        ? ` — ${form.needsAttribution} skipped (no captured_by credit yet; fix attribution in Assets, then re-run Publish batch)`
+        : ""}.
+    </Notice>
+  {/if}
+
   {#if form?.success}
     <Notice kind="success">
       Batch {form.batchId} ({form.mode}) — {form.imported.length} file(s) imported.
     </Notice>
+
+    <form method="POST" action="?/publishBatch" class="publish-batch-form">
+      <input type="hidden" name="batchId" value={form.batchId} />
+      <Button variant="primary">Publish batch</Button>
+      <span class="field-hint">
+        Approves + publishes every asset in this batch that has a resolved photo credit; skips (and
+        reports) any that don't.
+      </span>
+    </form>
 
     <div class="results-wrap">
       <Table>
@@ -98,6 +115,13 @@
   .field-hint {
     font-size: 0.75rem;
     color: var(--color-text-tertiary);
+  }
+
+  .publish-batch-form {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: var(--space-flow--1);
   }
 
   .results-wrap {
