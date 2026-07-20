@@ -128,6 +128,16 @@ Grounded in what's actually built (`assets/+page.svelte`,
   (wrapping inline groups) — thin flex wrappers over `--space-flow-*`
   values, for the ad hoc `flex-column`/`flex-wrap` rules that used to be
   hand-rolled per page (`.asset-meta`, `.asset-actions`).
+- **Metadata edit form** — the asset detail page's "Edit metadata"
+  section (#57) — title as a plain text input, tags as one
+  comma-separated `<datalist>`-backed input (replaces the full tag set on
+  submit, not additive), captured_by as a `<datalist>`-backed input
+  offering both Person names and the VizChitra org name, resolved
+  server-side by exact-name match against the org before falling back to
+  resolve-or-create-by-name. Gated by the same `canReviewAsset` check as
+  Approve/Reject — attribution correction is editorial work, not
+  self-service. Allowed regardless of publish status (see `/DESIGN.md`
+  and `architecture/Studio Data Model.md`).
 - **Asset detail page** — `src/routes/assets/[id]/` (#56) — the largest
   available derivative, full metadata (EXIF, quality, tags, captured_by),
   the complete `asset_version` list, and full `asset_pipeline_run`
@@ -165,12 +175,14 @@ are new design, not extraction — nothing rendered a global nav before).
 
 **Not built yet:**
 
-- `Combobox` (autocomplete) — needed by the attribution person-picker
-  and venue/session tag-picker issues, neither of which has landed yet.
-  Try a native `<datalist>`-backed input first when that work starts —
-  works without JS — and only reach for a custom JS combobox if
+- `Combobox` (autocomplete) — resolved as a native `<datalist>`-backed
+  text input instead, per the plan below, across every consumer so far
+  (upload's photographer/tag prompts, #44; the asset detail page's
+  title/tags/captured_by edit form, #57) — works without JS, and none of
   `<datalist>`'s limits (no inline "create new," no rich item rendering)
-  actually block something. Not built speculatively ahead of a consumer.
+  have actually blocked anything yet. Still not a dedicated component
+  since the markup is a few lines repeated per field, not shared logic;
+  revisit only if that changes.
 - `Modal` — deliberately not building. Nothing built so far uses one —
   face-confirm is inline on the card — and a modal cuts against the
   "AI output stays inline, not tucked away" principle. The full-resolution
