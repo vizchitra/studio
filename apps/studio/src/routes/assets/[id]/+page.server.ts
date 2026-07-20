@@ -1,7 +1,12 @@
-import { error } from "@sveltejs/kit";
+import { error, fail, redirect } from "@sveltejs/kit";
 import { canReview, canReprocess, MEDIA_PIPELINE_STEPS } from "@studio/shared";
-import { getEffectiveRole, getOrCreatePersonId } from "$lib/server/permissions";
-import type { PageServerLoad } from "./$types";
+import {
+  getEffectiveRole,
+  getOrCreatePersonByName,
+  getOrCreatePersonId,
+} from "$lib/server/permissions";
+import { replaceAssetTags, setCapturedBy } from "$lib/server/relationships";
+import type { Actions, PageServerLoad } from "./$types";
 import type { MediaPipelineStep } from "@studio/shared";
 
 interface AssetRow {
@@ -163,6 +168,27 @@ export const load: PageServerLoad = async ({ params, platform, locals }) => {
     canReprocessAsset = canReprocess(studioRole);
   }
 
+  // Autocomplete sources for the metadata edit form (#57) — same
+  // read-only, side-effect-free lookups the upload form already does on
+  // GET (src/routes/+page.server.ts).
+  let personNames: string[] = [];
+  let tagNames: string[] = [];
+  let orgName: string | null = null;
+  if (canReviewAsset) {
+    const [people, allTags, org] = await Promise.all([
+      db
+        .prepare(`SELECT DISTINCT name FROM person WHERE name IS NOT NULL ORDER BY name LIMIT 200`)
+        .all<{ name: string }>(),
+      db.prepare(`SELECT name FROM tag ORDER BY name LIMIT 200`).all<{ name: string }>(),
+      db
+        .prepare(`SELECT name FROM organisation WHERE slug = 'vizchitra'`)
+        .first<{ name: string }>(),
+    ]);
+    personNames = people.results.map((p) => p.name);
+    tagNames = allTags.results.map((t) => t.name);
+    orgName = org?.name ?? null;
+  }
+
   return {
     asset: { ...asset, qualityFlags },
     versions,
@@ -174,5 +200,66 @@ export const load: PageServerLoad = async ({ params, platform, locals }) => {
     canReviewAsset,
     canReprocessAsset,
     pipelineSteps: MEDIA_PIPELINE_STEPS,
+    personNames,
+    tagNames,
+    orgName,
   };
+};
+
+export const actions: Actions = {
+  // Correct title/tags/captured_by after the fact (#57) — set once at
+  // import/upload with no way to fix a wrong or missing credit until now.
+  // Allowed post-publish: publication rows stay immutable per CLAUDE.md,
+  // but that's a release snapshot, not a lock on the asset's own
+  // metadata — a correction is picked up by the next publish.
+  updateMetadata: async ({ request, params, platform, locals }) => {
+    if (!locals.user) return fail(401, { error: "Not signed in" });
+    const db = platform?.env.DB;
+    if (!db) return fail(500, { error: "DB binding not available" });
+
+    const personId = await getOrCreatePersonId(db, locals.user.email);
+    const role = await getEffectiveRole(db, personId, "asset", params.id);
+    if (!canReview(role)) return fail(403, { error: "Insufficient permissions to edit metadata" });
+
+    const form = await request.formData();
+    const title = form.get("title");
+    const tagsRaw = form.get("tags");
+    const capturedByName = form.get("capturedByName");
+
+    if (typeof capturedByName !== "string" || capturedByName.trim() === "") {
+      return fail(400, { error: "Captured by is required" });
+    }
+
+    const trimmedTitle = typeof title === "string" ? title.trim() : "";
+    await db
+      .prepare(`UPDATE asset SET title = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
+      .bind(trimmedTitle || null, new Date().toISOString(), personId, params.id)
+      .run();
+
+    const tagNames = typeof tagsRaw === "string" ? tagsRaw : "";
+    await replaceAssetTags(
+      db,
+      params.id,
+      tagNames
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t !== ""),
+    );
+
+    // Typing the org's own name (e.g. "VizChitra") re-selects the org
+    // default; anything else resolves to a Person, same rule the bulk
+    // import fallback uses in reverse (issue #45).
+    const org = await db
+      .prepare(`SELECT id, name FROM organisation WHERE slug = 'vizchitra'`)
+      .first<{ id: string; name: string }>();
+    const trimmedCapturedBy = capturedByName.trim();
+    if (org && trimmedCapturedBy.toLowerCase() === org.name.toLowerCase()) {
+      await setCapturedBy(db, params.id, org.id, "organisation");
+    } else {
+      const capturedById = await getOrCreatePersonByName(db, trimmedCapturedBy);
+      await setCapturedBy(db, params.id, capturedById, "person");
+    }
+
+    redirect(303, `/assets/${params.id}`);
+  },
 };

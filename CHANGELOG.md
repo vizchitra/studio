@@ -6,6 +6,24 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Metadata editing (title, tags, captured_by) on the asset detail page
+  (closes #57): a new "Edit metadata" form on `/assets/[id]`, gated by
+  the same `canReviewAsset` check as Approve/Reject. Title is a plain
+  text input; tags are one comma-separated `<datalist>`-backed field that
+  replaces the asset's full tag set on submit (not additive — otherwise
+  there'd be no way to remove a tag from the form); captured_by is a
+  `<datalist>`-backed field offering existing Person names plus the
+  VizChitra org's own name, resolved server-side by exact (case
+  -insensitive) match against the org before falling back to
+  resolve-or-create-by-name, so switching a bulk-import default back to
+  a specific photographer (or the reverse) is one field. New
+  `setCapturedBy`/`replaceAssetTags` helpers in
+  `apps/studio/src/lib/server/relationships.ts` delete-then-insert rather
+  than append, since both facts are meant to be a current-state
+  correction, not a history. Editing is allowed at any asset status,
+  including after publish — publication rows stay immutable per
+  CLAUDE.md, but that's a release snapshot, not a lock on the asset's own
+  metadata; a correction is picked up by the next publish.
 - Asset detail page (closes #56): `/assets/[id]` — largest available
   derivative (web, falling back to original), full metadata (EXIF
   summary, quality score/flags, tags via `tagged_with`, `captured_by`),

@@ -103,6 +103,52 @@
     </div>
   </div>
 
+  {#if data.canReviewAsset}
+    <h2 class="font-display">Edit metadata</h2>
+    <form method="POST" action="?/updateMetadata" class="edit-metadata-form">
+      <div class="field">
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" value={data.asset.title ?? ""} />
+      </div>
+
+      <div class="field">
+        <label for="tags">Tags (comma-separated)</label>
+        <input type="text" id="tags" name="tags" list="tag-names" value={data.tags.join(", ")} />
+        <datalist id="tag-names">
+          {#each data.tagNames as name (name)}
+            <option value={name}></option>
+          {/each}
+        </datalist>
+      </div>
+
+      <div class="field">
+        <label for="capturedByName">Captured by</label>
+        <input
+          type="text"
+          id="capturedByName"
+          name="capturedByName"
+          list="captured-by-options"
+          value={data.capturedBy ?? ""}
+          required
+        />
+        <datalist id="captured-by-options">
+          {#if data.orgName}
+            <option value={data.orgName}></option>
+          {/if}
+          {#each data.personNames as name (name)}
+            <option value={name}></option>
+          {/each}
+        </datalist>
+        <span class="field-hint">
+          Type an existing name, or {data.orgName ?? "the VizChitra org"} for official/unattributed
+          photos.
+        </span>
+      </div>
+
+      <Button variant="primary">Save changes</Button>
+    </form>
+  {/if}
+
   <h2 class="font-display">Versions</h2>
   <div class="table-wrap">
     <Table>
@@ -222,6 +268,28 @@
   .action-row select {
     flex: 1;
     min-width: 0;
+  }
+
+  .edit-metadata-form {
+    max-width: 32rem;
+    margin-top: var(--space-flow--1);
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .field label {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+  }
+
+  .field-hint {
+    font-size: 0.75rem;
+    color: var(--color-text-tertiary);
   }
 
   .table-wrap {
