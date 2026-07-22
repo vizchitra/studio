@@ -6,6 +6,15 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Stub pages for the Content, Programme and Communications modules
+  (closes #59): `/content`, `/programme`, `/communications` — module name
+  as heading, its one-line description quoted verbatim from
+  `architecture/Studio Architecture.md`'s Modules section (not restated
+  as a second source of truth), and a "not yet built" `<Notice>`. Nav/
+  routing completeness only, ahead of Roadmap Phase 2 — no entities or
+  real functionality. Linked from `SidePanel.svelte` alongside the
+  existing Media links. People is deliberately excluded, per #58 landing
+  it as a real page instead.
 - Baseline role management UI (closes #58): `/people` lists every Person
   with their baseline `StudioAccessRole` and a per-row selector to change
   it — previously the only way to assign a role was a direct D1 write.

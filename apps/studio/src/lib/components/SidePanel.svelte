@@ -7,6 +7,9 @@
 <nav class="side-panel" aria-label="Primary">
   <ul>
     <li><a href="/assets">Assets</a></li>
+    <li><a href="/content">Content</a></li>
+    <li><a href="/programme">Programme</a></li>
+    <li><a href="/communications">Communications</a></li>
     {#if canUpload}
       <li><a href="/admin/bulk-import">Bulk Import</a></li>
     {/if}
