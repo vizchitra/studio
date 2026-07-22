@@ -107,7 +107,10 @@ Grounded in what's actually built (`assets/+page.svelte`,
 - **Notices** — `<Notice kind="error" | "success">` (`Notice.svelte`),
   wrapping `.content-notice` / `.notice-error` / `.notice-success` — for
   page-level feedback (form errors, confirmations), not per-card state
-  (that's the status badge's job).
+  (that's the status badge's job). `kind` is optional — a bare `<Notice>`
+  (no error/success accent) is the "not yet built" placeholder for a
+  module with no real page yet (`/content`, `/programme`,
+  `/communications`, #59).
 - **Overlay annotation** — `.face-box` / `.face-label` — absolutely
   positioned over an image using fractional coordinates
   (`x_min * 100%`), for anything that needs to point at a region of a
