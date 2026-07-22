@@ -6,6 +6,18 @@ Running log of what changed and why. Newest first.
 
 ### Added
 
+- Baseline role management UI (closes #58): `/people` lists every Person
+  with their baseline `StudioAccessRole` and a per-row selector to change
+  it — previously the only way to assign a role was a direct D1 write.
+  Administrator-only (new `canManageRoles()` in `@studio/shared`,
+  alongside a new `STUDIO_ACCESS_ROLES` canonical list so the role
+  `<select>` and submitted-value validation share one source instead of
+  each hardcoding the six values). Scoped to baseline grants only, not
+  entity-level overrides — nothing in the app reads an override today,
+  so a UI for one would be misleading. Refuses a change that would leave
+  zero administrators (counts current administrators before demoting
+  one). Nav gained a "People" link, admin-only, alongside Bulk Import
+  and Pipeline Validation.
 - Metadata editing (title, tags, captured_by) on the asset detail page
   (closes #57): a new "Edit metadata" form on `/assets/[id]`, gated by
   the same `canReviewAsset` check as Approve/Reject. Title is a plain

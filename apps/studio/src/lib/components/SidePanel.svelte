@@ -1,6 +1,7 @@
 <script lang="ts">
   export let canReprocess = false;
   export let canUpload = false;
+  export let canManageRoles = false;
 </script>
 
 <nav class="side-panel" aria-label="Primary">
@@ -11,6 +12,9 @@
     {/if}
     {#if canReprocess}
       <li><a href="/admin/pipeline-validation">Pipeline Validation</a></li>
+    {/if}
+    {#if canManageRoles}
+      <li><a href="/people">People</a></li>
     {/if}
   </ul>
 </nav>
