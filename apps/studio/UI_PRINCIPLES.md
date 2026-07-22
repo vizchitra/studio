@@ -150,10 +150,20 @@ Grounded in what's actually built (`assets/+page.svelte`,
   field (same pattern the reprocess action already used for
   pipeline-validation) sends the user back to the detail page instead of
   the grid.
+- **People / role management** — `src/routes/people/` (#58) — one row
+  per Person, a `<select>` of every `StudioAccessRole`
+  (`STUDIO_ACCESS_ROLES` in `@studio/shared`) plus a per-row Save,
+  administrator-only (`canManageRoles`). Baseline grants only — no
+  entity-level override UI, since nothing in the app reads an override
+  today (see `getEffectiveRole`'s comment); building that control ahead
+  of anything enforcing it would be misleading, per CLAUDE.md's "don't
+  design for hypothetical future requirements." Refuses a change that
+  would leave zero administrators.
 - **Nav + SidePanel app shell** — `src/routes/+layout.svelte` composes
   `<Nav>` (top bar: hamburger toggle, brand, signed-in user) and
   `<SidePanel>` (left, primary nav links, admin-only links gated by
-  `canReprocess` from `+layout.server.ts`) around every route's content.
+  `canReprocess`/`canUpload`/`canManageRoles` from `+layout.server.ts`)
+  around every route's content.
   The sidebar collapse is a pure-CSS checkbox hack (`#sidepanel-toggle`
   in `Nav.svelte`, `:checked ~ .app-body .side-panel` in
   `+layout.svelte`) — no JS, per the progressive-enhancement principle.
